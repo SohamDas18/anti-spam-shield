@@ -23,10 +23,25 @@ app.config.update(
 
 EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$')
 
+def get_current_authenticated_user():
+    """Returns the user dict if authenticated and verified in database, else clears session and returns None."""
+    if 'user_id' not in session or not session.get('user_id'):
+        return None
+    try:
+        user = db.get_user_by_id(session['user_id'])
+        if not user:
+            session.clear()
+            return None
+        return user
+    except Exception:
+        session.clear()
+        return None
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user_id' not in session or not session.get('user_id'):
+        user = get_current_authenticated_user()
+        if not user:
             if request.path.startswith('/api/'):
                 # Check for API Key header for headless/automated clients
                 api_key = request.headers.get('X-API-Key') or request.headers.get('Authorization', '').replace('Bearer ', '')
@@ -38,16 +53,24 @@ def login_required(f):
                     'error': 'Authentication required. Please log in or provide a valid API Key.',
                     'authenticated': False
                 }), 401
-            flash('Access restricted. Please log in or register to access the Sentinel threat analyzer.', 'warning')
+            flash('Access restricted. Please log in or register to access the Sentinel threat analysis platform.', 'warning')
             return redirect(url_for('login', next=request.path))
         return f(*args, **kwargs)
     return decorated_function
 
+@app.after_request
+def add_security_headers(response):
+    """Enforce strict no-cache headers so browser Back button and history do not expose protected dashboard after logout."""
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0, post-check=0, pre-check=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    return response
+
 @app.context_processor
 def inject_global():
-    user = None
-    if 'user_id' in session:
-        user = db.get_user_by_id(session['user_id'])
+    user = get_current_authenticated_user()
     cur_lang = session.get('lang', 'en')
     return {
         'current_user': user,
@@ -66,15 +89,17 @@ def set_language(lang):
     ref = request.referrer
     if ref and (request.host in ref):
         return redirect(ref)
-    return redirect(url_for('index'))
+    if get_current_authenticated_user():
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
 
 # ----------------- AUTHENTICATION ROUTES ----------------- #
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     """Register a new user account with full backend validation and password hashing."""
-    if 'user_id' in session and session.get('user_id'):
-        return redirect(url_for('index'))
+    if get_current_authenticated_user():
+        return redirect(url_for('dashboard'))
 
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
@@ -125,8 +150,8 @@ def register():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Authenticate user with email and securely hashed password."""
-    if 'user_id' in session and session.get('user_id'):
-        return redirect(url_for('index'))
+    if get_current_authenticated_user():
+        return redirect(url_for('dashboard'))
 
     next_url = request.args.get('next') or request.form.get('next')
 
@@ -147,9 +172,9 @@ def login():
             flash(f'Welcome back, {user["name"]}! Sentinel Threat Analysis Console unlocked.', 'success')
 
             # Safe redirection against open redirect attacks
-            if next_url and next_url.startswith('/') and not next_url.startswith('//'):
+            if next_url and next_url.startswith('/') and not next_url.startswith('//') and next_url not in ['/login', '/register', '/logout']:
                 return redirect(next_url)
-            return redirect(url_for('index'))
+            return redirect(url_for('dashboard'))
         else:
             flash('Invalid email or password. Please verify your credentials.', 'danger')
             return render_template('login.html', email=email, next_url=next_url)
@@ -158,10 +183,12 @@ def login():
 
 @app.route('/logout')
 def logout():
-    """Securely clears session and redirects to the Login page."""
+    """Securely clears session, expires cookies, and redirects to the Login page."""
     session.clear()
     flash('You have been securely logged out of Sentinel.', 'info')
-    return redirect(url_for('login'))
+    resp = redirect(url_for('login'))
+    resp.set_cookie(app.config.get('SESSION_COOKIE_NAME', 'session'), '', expires=0, max_age=0)
+    return resp
 
 # ----------------- TRUSTED CONTACTS (WHITELIST) ROUTES ----------------- #
 
@@ -216,10 +243,15 @@ def api_mark_safe():
 
 @app.route('/')
 def index():
-    """Main route: If authenticated, render Sentinel Threat Analyzer. If unauthenticated, redirect to Login."""
-    if 'user_id' not in session or not session.get('user_id'):
-        return redirect(url_for('login'))
-    return render_template('index.html')
+    """Root website URL.
+    Checks whether the user is authenticated:
+    - If authenticated: redirect to /dashboard
+    - If NOT authenticated: redirect to /login
+    """
+    user = get_current_authenticated_user()
+    if user:
+        return redirect(url_for('dashboard'))
+    return redirect(url_for('login'))
 
 @app.route('/analyzer')
 @login_required

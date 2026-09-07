@@ -111,12 +111,13 @@ class TestSpamMailRiskSystem(unittest.TestCase):
         self.assertEqual(reg_res.status_code, 302)
         self.assertIn('/login', reg_res.headers.get('Location', ''))
 
-        # 5. User Login Flow
+        # 5. User Login Flow (Redirects to /dashboard)
         login_res = self.app.post('/login', data={
             'email': test_email,
             'password': 'SecurePassword123'
         }, follow_redirects=False)
         self.assertEqual(login_res.status_code, 302)
+        self.assertEqual(login_res.headers.get('Location'), '/dashboard')
 
         # 6. Authenticated Session Access to Protected Routes
         with self.app.session_transaction() as sess:
@@ -126,7 +127,13 @@ class TestSpamMailRiskSystem(unittest.TestCase):
             sess['user_name'] = user['name']
             sess['user_email'] = user['email']
 
-        for protected_path in ['/', '/analyzer', '/dashboard', '/history', '/contacts']:
+        # Root URL '/' for authenticated user must redirect to '/dashboard'
+        root_auth = self.app.get('/')
+        self.assertEqual(root_auth.status_code, 302)
+        self.assertEqual(root_auth.headers.get('Location'), '/dashboard')
+
+        # Protected pages must return 200 for authenticated user
+        for protected_path in ['/dashboard', '/analyzer', '/history', '/contacts']:
             auth_response = self.app.get(protected_path)
             self.assertEqual(auth_response.status_code, 200, f"Authenticated access to {protected_path} failed")
 
@@ -144,6 +151,12 @@ class TestSpamMailRiskSystem(unittest.TestCase):
         logout_res = self.app.get('/logout')
         self.assertEqual(logout_res.status_code, 302)
         self.assertIn('/login', logout_res.headers.get('Location', ''))
+
+        # 9. Verify that after logout, accessing /dashboard or /analyzer redirects back to /login
+        for protected_path in ['/', '/dashboard', '/analyzer']:
+            post_logout_res = self.app.get(protected_path)
+            self.assertEqual(post_logout_res.status_code, 302)
+            self.assertIn('/login', post_logout_res.headers.get('Location', ''))
     def test_09_autonomous_personal_sensing_without_whitelist(self):
         """Tests that the AI autonomously senses friend/family messages WITHOUT any manual whitelist or user hints."""
         personal_samples = [
@@ -216,9 +229,11 @@ class TestSpamMailRiskSystem(unittest.TestCase):
 
         res_auth_login = self.app.get('/login')
         self.assertEqual(res_auth_login.status_code, 302)
+        self.assertEqual(res_auth_login.headers.get('Location'), '/dashboard')
 
         res_auth_register = self.app.get('/register')
         self.assertEqual(res_auth_register.status_code, 302)
+        self.assertEqual(res_auth_register.headers.get('Location'), '/dashboard')
 
 if __name__ == '__main__':
     unittest.main()

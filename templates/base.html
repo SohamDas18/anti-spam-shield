@@ -36,6 +36,22 @@
         .skiptranslate iframe { display: none !important; }
         #google_translate_element { display: none !important; }
     </style>
+
+    <script>
+        // Dual-Layer Security: Client-side authentication guard for protected views
+        {% if not current_user and request.endpoint not in ['login', 'register'] %}
+        if (window.location.pathname !== "{{ url_for('login') }}" && window.location.pathname !== "{{ url_for('register') }}") {
+            window.location.replace("{{ url_for('login') }}");
+        }
+        {% endif %}
+
+        // Invalidate browser back-forward cache (bfcache) after logout
+        window.addEventListener('pageshow', function(event) {
+            if (event.persisted) {
+                window.location.reload();
+            }
+        });
+    </script>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-indigo-600 selection:text-white">
 
@@ -45,7 +61,7 @@
             <div class="flex items-center justify-between h-16">
                 <!-- Logo & Brand -->
                 <div class="flex items-center space-x-3">
-                    <a href="{{ url_for('index') }}" class="flex items-center space-x-3 group">
+                    <a href="{{ url_for('dashboard') if current_user else url_for('login') }}" class="flex items-center space-x-3 group">
                         <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 group-hover:scale-105 transition-transform">
                             <i class="fa-solid fa-envelope-shield text-white text-lg"></i>
                         </div>
@@ -61,10 +77,10 @@
                 {% if current_user %}
                 <!-- Navigation Links -->
                 <nav class="hidden md:flex items-center space-x-1">
-                    <a href="{{ url_for('index') }}" class="px-3 py-2 rounded-lg text-sm font-medium transition-colors {% if request.endpoint in ['index', 'analyzer'] %}bg-slate-800 text-cyan-400 font-semibold{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-cyan-400{% endif %}">
+                    <a href="{{ url_for('analyzer') }}" class="px-3 py-2 rounded-lg text-sm font-medium transition-colors {% if request.endpoint == 'analyzer' %}bg-slate-800 text-cyan-400 font-semibold{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-cyan-400{% endif %}">
                         <i class="fa-solid fa-magnifying-glass-chart mr-1.5 text-cyan-400"></i> {{ t('nav_scan') }}
                     </a>
-                    <a href="{{ url_for('dashboard') }}" class="px-3 py-2 rounded-lg text-sm font-medium transition-colors {% if request.endpoint == 'dashboard' %}bg-slate-800 text-cyan-400 font-semibold{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-cyan-400{% endif %}">
+                    <a href="{{ url_for('dashboard') }}" class="px-3 py-2 rounded-lg text-sm font-medium transition-colors {% if request.endpoint in ['dashboard', 'index'] %}bg-slate-800 text-cyan-400 font-semibold{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-cyan-400{% endif %}">
                         <i class="fa-solid fa-chart-line mr-1.5 text-indigo-400"></i> {{ t('nav_dashboard') }}
                     </a>
                     <a href="{{ url_for('history') }}" class="px-3 py-2 rounded-lg text-sm font-medium transition-colors {% if request.endpoint == 'history' %}bg-slate-800 text-cyan-400 font-semibold{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-cyan-400{% endif %}">
