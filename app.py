@@ -376,9 +376,14 @@ def view_result(email_id):
         )
     from src.geo_locator import locate_sender, locate_url_hosts, locate_callback_phones, build_interactive_map_payload
 
-    sender_geo = locate_sender(email_data.get('sender'), email_data.get('message_type'))
+    sender_geo = locate_sender(
+        email_data.get('sender'),
+        email_data.get('message_type'),
+        text_content=email_data.get('email_content', ''),
+        user_id=session.get('user_id')
+    )
     url_geos = locate_url_hosts(urls)
-    phone_geos = locate_callback_phones(phones)
+    phone_geos = locate_callback_phones(phones, text_content=email_data.get('email_content', ''))
     map_pins = build_interactive_map_payload(sender_geo, url_geos=url_geos, phone_geos=phone_geos)
 
     cur_lang = session.get('lang', 'en')

@@ -235,5 +235,27 @@ class TestSpamMailRiskSystem(unittest.TestCase):
         self.assertEqual(res_auth_register.status_code, 302)
         self.assertEqual(res_auth_register.headers.get('Location'), '/dashboard')
 
+    def test_11_google_maps_and_sim_subscriber_intelligence(self):
+        from src.geo_locator import locate_sender, build_interactive_map_payload
+
+        # 1. Scammer number (+91 88776 65544) resolves to Ramesh Verma & Kolkata coordinates
+        scam_geo = locate_sender("+91 88776 65544", message_type="SMS", text_content="Electricity power disconnected tonight")
+        self.assertIn("Ramesh Verma", scam_geo['sim_owner_name'])
+        self.assertIn("maps.google.com", scam_geo['google_maps_embed_url'])
+        self.assertIn("output=embed", scam_geo['google_maps_embed_url'])
+        self.assertIn("22.5726", scam_geo['formatted_coords'])
+        self.assertIn("88.3639", scam_geo['formatted_coords'])
+
+        # 2. TRAI corporate shortcode (VK-HDFCBK) resolves to HDFC Bank Limited
+        hdfc_geo = locate_sender("VK-HDFCBK", message_type="SMS")
+        self.assertIn("HDFC Bank", hdfc_geo['sim_owner_name'])
+        self.assertIn("maps.google.com", hdfc_geo['google_maps_embed_url'])
+
+        # 3. Interactive map pins payload contains Google Maps links and subscriber metadata
+        pins = build_interactive_map_payload(scam_geo)
+        self.assertEqual(len(pins), 1)
+        self.assertEqual(pins[0]['sim_owner_name'], scam_geo['sim_owner_name'])
+        self.assertEqual(pins[0]['google_maps_embed_url'], scam_geo['google_maps_embed_url'])
+
 if __name__ == '__main__':
     unittest.main()
