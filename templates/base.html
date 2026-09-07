@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Spam Mail Detection & Email Risk Analysis{% endblock %} - Sentinel AI</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        cyber: {
+                            800: '#111827',
+                            900: '#0b0f19',
+                            card: '#1e293b'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome 6 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    
+    <style>
+        /* Google Translate clean dark integration */
+        .goog-te-banner-frame.skiptranslate { display: none !important; }
+        body { top: 0px !important; }
+        .goog-tooltip, #goog-gt-tt { display: none !important; }
+        .goog-text-highlight { background-color: transparent !important; border: none !important; box-shadow: none !important; }
+        .skiptranslate iframe { display: none !important; }
+        #google_translate_element { display: none !important; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased selection:bg-indigo-600 selection:text-white">
+
+    <!-- Top Navbar -->
+    <header class="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo & Brand -->
+                <div class="flex items-center space-x-3">
+                    <a href="{{ url_for('index') }}" class="flex items-center space-x-3 group">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 group-hover:scale-105 transition-transform">
+                            <i class="fa-solid fa-envelope-shield text-white text-lg"></i>
+                        </div>
+                        <div>
+                            <span class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-indigo-300 to-purple-300">
+                                {{ t('brand_title') }}
+                            </span>
+                            <span class="text-[10px] block text-slate-400 tracking-wider font-mono">{{ t('brand_subtitle') }}</span>
+                        </div>
+                    </a>
+                </div>
+
+                <!-- Navigation Links -->
+                <nav class="hidden md:flex items-center space-x-1">
+                    <a href="{{ url_for('index') }}" class="px-3 py-2 rounded-lg text-sm font-medium transition-colors {% if request.endpoint == 'index' %}bg-slate-800 text-cyan-400 font-semibold{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-cyan-400{% endif %}">
+                        <i class="fa-solid fa-magnifying-glass-chart mr-1.5 text-cyan-400"></i> {{ t('nav_scan') }}
+                    </a>
+                    <a href="{{ url_for('dashboard') }}" class="px-3 py-2 rounded-lg text-sm font-medium transition-colors {% if request.endpoint == 'dashboard' %}bg-slate-800 text-cyan-400 font-semibold{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-cyan-400{% endif %}">
+                        <i class="fa-solid fa-chart-line mr-1.5 text-indigo-400"></i> {{ t('nav_dashboard') }}
+                    </a>
+                    <a href="{{ url_for('history') }}" class="px-3 py-2 rounded-lg text-sm font-medium transition-colors {% if request.endpoint == 'history' %}bg-slate-800 text-cyan-400 font-semibold{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-cyan-400{% endif %}">
+                        <i class="fa-solid fa-clock-rotate-left mr-1.5 text-amber-400"></i> {{ t('nav_history') }}
+                    </a>
+                    <a href="{{ url_for('contacts_page') }}" class="px-3 py-2 rounded-lg text-sm font-medium transition-colors {% if request.endpoint == 'contacts_page' %}bg-slate-800 text-emerald-400 font-semibold{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-emerald-400{% endif %}">
+                        <i class="fa-solid fa-user-check mr-1.5 text-emerald-400"></i> {{ t('nav_contacts') }}
+                    </a>
+                </nav>
+
+                <!-- Status, Language Switcher & Auth Area -->
+                <div class="flex items-center space-x-2 sm:space-x-3">
+                    <!-- Multi-Language Selector (English + ANY Visitor's Native Language) -->
+                    <div class="relative flex items-center bg-slate-950/90 rounded-xl p-1 border border-slate-800 text-xs font-semibold shadow-inner" id="langBar">
+                        <!-- Option 1: English (Default) -->
+                        <button type="button" onclick="selectAppLanguage('en', 'English', '🌐')" id="btnLangEnglish" class="px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1 font-mono text-xs {% if current_lang == 'en' %}bg-cyan-500 text-white font-bold shadow-md shadow-cyan-500/20{% else %}text-slate-400 hover:text-slate-200{% endif %}" title="View in English (Default)">
+                            <i class="fa-solid fa-globe text-[11px] mr-1"></i>
+                            <span>EN</span>
+                        </button>
+
+                        <!-- Option 2: Native Language Dropdown -->
+                        <div class="relative">
+                            <button type="button" onclick="toggleNativeDropdown()" id="btnNativeDropdown" class="px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1.5 {% if current_lang != 'en' %}bg-cyan-500 text-white font-bold shadow-md shadow-cyan-500/20{% else %}text-slate-300 hover:text-white hover:bg-slate-800/80{% endif %}" title="Select your Native Language (বাংলা, हिन्दी, தமிழ், etc.)">
+                                <span id="nativeLangFlag">{% if current_lang == 'bn' %}🇧🇩{% elif current_lang == 'hi' %}🇮🇳{% else %}🇮🇳{% endif %}</span>
+                                <span id="nativeLangLabel" class="font-medium">{% if current_lang == 'bn' %}বাংলা{% elif current_lang == 'hi' %}हिन्दी{% else %}Native Language{% endif %}</span>
+                                <i class="fa-solid fa-chevron-down text-[10px] opacity-70 ml-0.5"></i>
+                            </button>
+
+                            <!-- Dropdown Menu -->
+                            <div id="nativeLangMenu" class="hidden absolute right-0 mt-2 w-64 max-h-80 overflow-y-auto bg-slate-900/95 border border-slate-700/80 rounded-xl shadow-2xl z-50 py-1.5 text-xs text-slate-200 divide-y divide-slate-800/60 backdrop-blur-xl">
+                                <div class="px-3 py-1.5 text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center justify-between">
+                                    <span>Select Native Language</span>
+                                    <span class="text-[9px] text-cyan-400 font-mono">100+ Available</span>
+                                </div>
+                                
+                                <!-- Top Indian Languages -->
+                                <div class="py-1">
+                                    <button type="button" onclick="selectAppLanguage('bn', 'বাংলা', '🇧🇩')" class="w-full text-left px-3 py-2 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span class="font-medium">🇧🇩 বাংলা (Bengali)</span>
+                                        <span class="text-[10px] text-cyan-400 font-mono">বাংলা</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('hi', 'हिन्दी', '🇮🇳')" class="w-full text-left px-3 py-2 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span class="font-medium">🇮🇳 हिन्दी (Hindi)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">hi</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('ta', 'தமிழ்', '🇮🇳')" class="w-full text-left px-3 py-2 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span class="font-medium">🇮🇳 தமிழ் (Tamil)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">ta</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('te', 'తెలుగు', '🇮🇳')" class="w-full text-left px-3 py-2 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span class="font-medium">🇮🇳 తెలుగు (Telugu)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">te</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('mr', 'मराठी', '🇮🇳')" class="w-full text-left px-3 py-2 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span class="font-medium">🇮🇳 मराठी (Marathi)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">mr</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('gu', 'ગુજરાતી', '🇮🇳')" class="w-full text-left px-3 py-2 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span class="font-medium">🇮🇳 ગુજરાતી (Gujarati)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">gu</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('kn', 'ಕನ್ನಡ', '🇮🇳')" class="w-full text-left px-3 py-2 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span class="font-medium">🇮🇳 ಕನ್ನಡ (Kannada)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">kn</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('ml', 'മലയാളം', '🇮🇳')" class="w-full text-left px-3 py-2 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span class="font-medium">🇮🇳 മലയാളം (Malayalam)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">ml</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('pa', 'ਪੰਜਾਬੀ', '🇮🇳')" class="w-full text-left px-3 py-2 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span class="font-medium">🇮🇳 ਪੰਜਾਬੀ (Punjabi)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">pa</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('ur', 'اردو', '🇮🇳')" class="w-full text-left px-3 py-2 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span class="font-medium">🇮🇳 اردو (Urdu)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">ur</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('or', 'ଓଡ଼ିଆ', '🇮🇳')" class="w-full text-left px-3 py-2 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span class="font-medium">🇮🇳 ଓଡ଼ିଆ (Odia)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">or</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('as', 'অসমীয়া', '🇮🇳')" class="w-full text-left px-3 py-2 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span class="font-medium">🇮🇳 অসমীয়া (Assamese)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">as</span>
+                                    </button>
+                                </div>
+
+                                <!-- Global Languages -->
+                                <div class="py-1">
+                                    <div class="px-3 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                                        Global Native Languages
+                                    </div>
+                                    <button type="button" onclick="selectAppLanguage('es', 'Español', '🇪🇸')" class="w-full text-left px-3 py-1.5 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span>🇪🇸 Español (Spanish)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">es</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('fr', 'Français', '🇫🇷')" class="w-full text-left px-3 py-1.5 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span>🇫🇷 Français (French)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">fr</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('de', 'Deutsch', '🇩🇪')" class="w-full text-left px-3 py-1.5 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span>🇩🇪 Deutsch (German)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">de</span>
+                                    </button>
+                                    <button type="button" onclick="selectAppLanguage('ar', 'العربية', '🇸🇦')" class="w-full text-left px-3 py-1.5 hover:bg-cyan-600/20 hover:text-cyan-300 transition-colors flex items-center justify-between">
+                                        <span>🇸🇦 العربية (Arabic)</span>
+                                        <span class="text-[10px] text-slate-500 font-mono">ar</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="hidden sm:flex items-center px-2.5 py-1 rounded-full text-xs font-mono border {% if db_engine == 'MYSQL' %}border-emerald-500/40 bg-emerald-500/10 text-emerald-300{% else %}border-amber-500/40 bg-amber-500/10 text-amber-300{% endif %}" title="{{ db_status }}">
+                        <span class="w-2 h-2 rounded-full mr-2 {% if db_engine == 'MYSQL' %}bg-emerald-400 animate-pulse{% else %}bg-amber-400{% endif %}"></span>
+                        {{ t('db_status_label') }}: {{ db_engine }}
+                    </div>
+
+                    {% if current_user %}
+                    <div class="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700/60 text-xs">
+                        <i class="fa-solid fa-user-shield text-cyan-400"></i>
+                        <span class="font-semibold text-white">{{ current_user.name }}</span>
+                        <a href="{{ url_for('logout') }}" class="text-slate-400 hover:text-rose-400 ml-2" title="{{ t('nav_logout') }}">
+                            <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                        </a>
+                    </div>
+                    {% else %}
+                    <a href="{{ url_for('login') }}" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors">
+                        {{ t('nav_signin') }}
+                    </a>
+                    <a href="{{ url_for('register') }}" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 shadow-md shadow-cyan-600/30 transition-all">
+                        {{ t('nav_register') }}
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Flash Messages Container -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-4 w-full">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+            <div class="p-4 mb-3 rounded-xl border text-sm flex items-center justify-between {% if category == 'success' %}bg-emerald-950/40 border-emerald-500/40 text-emerald-300{% elif category == 'danger' %}bg-rose-950/40 border-rose-500/40 text-rose-300{% elif category == 'warning' %}bg-amber-950/40 border-amber-500/40 text-amber-300{% else %}bg-sky-950/40 border-sky-500/40 text-sky-300{% endif %}">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <span>{{ message }}</span>
+                </div>
+                <button onclick="this.parentElement.remove()" class="text-xs opacity-70 hover:opacity-100">&times;</button>
+            </div>
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 border-t border-slate-800 text-slate-500 text-xs py-5">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div class="flex items-center space-x-2">
+                <span>Spam Mail Detection & Email Risk Analysis &copy; {{ now.year }}</span>
+                <span>•</span>
+                <span class="text-cyan-400 font-semibold">By Soham Das (B.Tech — ECE)</span>
+            </div>
+            <div class="flex items-center space-x-4">
+                <span>Database Engine: <strong class="text-slate-300">{{ db_engine }}</strong></span>
+                <span>•</span>
+                <span class="text-slate-400">Strictly identifies potential cyber risk indicators.</span>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Hidden Google Translate Element -->
+    <div id="google_translate_element" style="display:none;"></div>
+    <script type="text/javascript">
+        function googleTranslateElementInit() {
+            new google.translate.TranslateElement({
+                pageLanguage: 'en',
+                autoDisplay: false
+            }, 'google_translate_element');
+        }
+    </script>
+    <script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+
+    <script>
+        function toggleNativeDropdown() {
+            const menu = document.getElementById('nativeLangMenu');
+            if (menu) menu.classList.toggle('hidden');
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(e) {
+            const wrapper = document.getElementById('langBar');
+            const menu = document.getElementById('nativeLangMenu');
+            if (wrapper && !wrapper.contains(e.target) && menu && !menu.classList.contains('hidden')) {
+                menu.classList.add('hidden');
+            }
+        });
+
+        function triggerGoogleTranslate(langCode) {
+            const domain = window.location.hostname;
+            document.cookie = `googtrans=/en/${langCode}; path=/;`;
+            if (domain && domain !== 'localhost' && domain !== '127.0.0.1') {
+                document.cookie = `googtrans=/en/${langCode}; domain=.${domain}; path=/;`;
+            }
+            
+            // Try to trigger translate select element if loaded
+            const selectEl = document.querySelector('.goog-te-combo');
+            if (selectEl) {
+                selectEl.value = langCode;
+                selectEl.dispatchEvent(new Event('change'));
+            } else {
+                // If translate widget is initializing, reload to apply cookie
+                setTimeout(() => window.location.reload(), 200);
+            }
+        }
+
+        function selectAppLanguage(langCode, label, flag) {
+            const menu = document.getElementById('nativeLangMenu');
+            if (menu) menu.classList.add('hidden');
+
+            if (langCode === 'en') {
+                localStorage.removeItem('active_native_lang');
+                // Clear Google Translate cookies
+                document.cookie = 'googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                document.cookie = `googtrans=; expires=Thu, 01 Jan 1970 00:00:00 UTC; domain=.${window.location.hostname}; path=/;`;
+                window.location.href = "{{ url_for('set_language', lang='en') }}";
+                return;
+            }
+
+            // Save user native language preference
+            localStorage.setItem('active_native_lang', JSON.stringify({ code: langCode, label: label, flag: flag }));
+
+            if (langCode === 'bn') {
+                // Direct server-side Bengali
+                window.location.href = "{{ url_for('set_language', lang='bn') }}";
+                return;
+            }
+
+            // Client-side instant translation for any other native language
+            const labelEl = document.getElementById('nativeLangLabel');
+            const flagEl = document.getElementById('nativeLangFlag');
+            if (labelEl) labelEl.innerText = label;
+            if (flagEl) flagEl.innerText = flag;
+
+            const btnEn = document.getElementById('btnLangEnglish');
+            const btnNative = document.getElementById('btnNativeDropdown');
+            if (btnEn) btnEn.className = "px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1 font-mono text-xs text-slate-400 hover:text-slate-200";
+            if (btnNative) btnNative.className = "px-2.5 py-1 rounded-lg transition-all flex items-center space-x-1.5 bg-cyan-500 text-white font-bold shadow-md shadow-cyan-500/20";
+            
+            triggerGoogleTranslate(langCode);
+        }
+
+        // Restore native language preferences & browser auto-detect
+        document.addEventListener('DOMContentLoaded', function() {
+            const saved = localStorage.getItem('active_native_lang');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    const labelEl = document.getElementById('nativeLangLabel');
+                    const flagEl = document.getElementById('nativeLangFlag');
+                    if (labelEl && parsed.label) labelEl.innerText = parsed.label;
+                    if (flagEl && parsed.flag) flagEl.innerText = parsed.flag;
+                } catch(e) {}
+            } else {
+                // Auto-detect visitor's browser language if not already saved
+                const browserLang = (navigator.language || navigator.userLanguage || '').toLowerCase();
+                const langMap = {
+                    'bn': { label: 'বাংলা', flag: '🇧🇩' },
+                    'hi': { label: 'हिन्दी', flag: '🇮🇳' },
+                    'ta': { label: 'தமிழ்', flag: '🇮🇳' },
+                    'te': { label: 'తెలుగు', flag: '🇮🇳' },
+                    'mr': { label: 'मराठी', flag: '🇮🇳' },
+                    'gu': { label: 'ગુજરાતી', flag: '🇮🇳' },
+                    'kn': { label: 'ಕನ್ನಡ', flag: '🇮🇳' },
+                    'ml': { label: 'മലയാളം', flag: '🇮🇳' },
+                    'pa': { label: 'ਪੰਜਾਬੀ', flag: '🇮🇳' },
+                    'ur': { label: 'اردو', flag: '🇮🇳' }
+                };
+                for (const prefix in langMap) {
+                    if (browserLang.startsWith(prefix)) {
+                        const target = langMap[prefix];
+                        const labelEl = document.getElementById('nativeLangLabel');
+                        const flagEl = document.getElementById('nativeLangFlag');
+                        if (labelEl) labelEl.innerText = target.label;
+                        if (flagEl) flagEl.innerText = target.flag;
+                        break;
+                    }
+                }
+            }
+        });
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

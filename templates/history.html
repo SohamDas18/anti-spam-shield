@@ -1,0 +1,120 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ t('history_title') }}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Header -->
+    <div class="bg-slate-900/90 border border-slate-800 p-6 rounded-2xl shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-extrabold text-white tracking-tight">{{ t('history_title') }}</h1>
+            <p class="text-slate-400 text-sm mt-1">{{ t('history_subtitle_full') }}</p>
+        </div>
+
+        <div class="flex items-center space-x-2">
+            <button onclick="exportTableToCSV('threat_audit_history.csv')" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors flex items-center">
+                <i class="fa-solid fa-file-csv mr-2 text-emerald-400 text-base"></i> {{ t('export_csv') }}
+            </button>
+            <a href="{{ url_for('index') }}" class="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold shadow-md shadow-cyan-600/30 transition-all flex items-center">
+                <i class="fa-solid fa-plus mr-1.5"></i> {{ t('nav_scan') }}
+            </a>
+        </div>
+    </div>
+
+    <!-- Table Container -->
+    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+        <div class="overflow-x-auto">
+            <table id="historyTable" class="w-full text-left text-sm">
+                <thead class="bg-slate-950/80 border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider font-mono">
+                    <tr>
+                        <th class="py-3.5 px-4">{{ t('tbl_hist_date') }}</th>
+                        <th class="py-3.5 px-4">{{ t('tbl_hist_sender') }}</th>
+                        <th class="py-3.5 px-4">{{ t('tbl_hist_subject') }}</th>
+                        <th class="py-3.5 px-4">{{ t('tbl_hist_verdict') }}</th>
+                        <th class="py-3.5 px-4">{{ t('spam_probability_label') }}</th>
+                        <th class="py-3.5 px-4">{{ t('prop_urls') }}</th>
+                        <th class="py-3.5 px-4 text-right">{{ t('tbl_hist_action') }}</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800/60">
+                    {% for item in records %}
+                    <tr class="hover:bg-slate-800/30 transition-colors">
+                        <td class="py-3 px-4 font-mono text-xs text-slate-300">
+                            <div>#{{ item.id }}</div>
+                            <div class="text-[10px] text-slate-500">{{ item.created_at }}</div>
+                        </td>
+                        <td class="py-3 px-4 text-xs text-slate-300 font-mono">
+                            {{ item.sender }}
+                        </td>
+                        <td class="py-3 px-4 text-xs text-white font-medium max-w-xs truncate" title="{{ item.subject }}">
+                            {{ item.subject }}
+                        </td>
+                        <td class="py-3 px-4">
+                            {% if item.classification == 'SPAM' %}
+                            <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-500/10 text-rose-400 border border-rose-500/30 font-mono">
+                                SPAM
+                            </span>
+                            {% else %}
+                            <span class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-mono">
+                                HAM
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="py-3 px-4 font-mono text-xs font-semibold text-slate-200">
+                            {{ item.spam_probability }}%
+                        </td>
+                        <td class="py-3 px-4 text-xs">
+                            {% if item.url_count and item.url_count > 0 %}
+                            <span class="px-2 py-0.5 rounded text-[11px] font-mono bg-cyan-950 text-cyan-300 border border-cyan-700/40">
+                                {{ item.url_count }} URL(s)
+                            </span>
+                            {% else %}
+                            <span class="text-slate-500 text-[11px]">None</span>
+                            {% endif %}
+                        </td>
+                        <td class="py-3 px-4 text-right">
+                            <a href="{{ url_for('view_result', email_id=item.id) }}" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-cyan-600 text-slate-300 hover:text-white transition-colors">
+                                {{ t('view_report_btn') }} &rarr;
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7" class="text-center py-12 text-slate-500 text-xs">
+                            <i class="fa-solid fa-inbox text-3xl mb-2 block text-slate-700"></i>
+                            {{ t('no_history_empty') }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function exportTableToCSV(filename) {
+    let csv = [];
+    const rows = document.querySelectorAll("#historyTable tr");
+    for (let i = 0; i < rows.length; i++) {
+        const row = [], cols = rows[i].querySelectorAll("td, th");
+        for (let j = 0; j < cols.length - 1; j++) {
+            let data = cols[j].innerText.replace(/(\r\n|\n|\r)/gm, " ").replace(/(\s\s+)/gm, " ").replace(/"/g, '""');
+            row.push('"' + data + '"');
+        }
+        csv.push(row.join(","));
+    }
+    const csvFile = new Blob([csv.join("\n")], { type: "text/csv" });
+    const downloadLink = document.createElement("a");
+    downloadLink.download = filename;
+    downloadLink.href = window.URL.createObjectURL(csvFile);
+    downloadLink.style.display = "none";
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+}
+</script>
+{% endblock %}

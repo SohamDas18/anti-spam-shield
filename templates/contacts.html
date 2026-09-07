@@ -1,0 +1,134 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ t('contacts_title') }}{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+
+    <!-- Header -->
+    <div class="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 p-6 rounded-2xl border border-slate-800 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div>
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                <i class="fa-solid fa-user-shield mr-1"></i> {{ t('contacts_hero_badge') }}
+            </span>
+            <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight mt-1">
+                {{ t('contacts_hero_title') }}
+            </h1>
+            <p class="text-slate-400 text-sm mt-1 max-w-2xl">
+                {{ t('contacts_hero_desc') }}
+            </p>
+        </div>
+
+        <a href="{{ url_for('index') }}" class="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs shadow-md shadow-cyan-600/30 transition-all flex items-center">
+            <i class="fa-solid fa-plus mr-1.5"></i> {{ t('nav_scan') }}
+        </a>
+    </div>
+
+    <!-- 2-Column Grid: Add Contact (Left 4 cols) & Contacts List (Right 8 cols) -->
+    <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+
+        <!-- Add Contact Form -->
+        <div class="md:col-span-4 bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+            <h2 class="text-base font-bold text-white flex items-center">
+                <i class="fa-solid fa-user-plus text-cyan-400 mr-2"></i> {{ t('add_contact_title') }}
+            </h2>
+            <p class="text-xs text-slate-400">
+                {{ t('contacts_subtitle') }}
+            </p>
+
+            <form method="POST" action="{{ url_for('add_contact') }}" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                        {{ t('lbl_contact_name') }}
+                    </label>
+                    <input type="text" name="display_name" required placeholder="e.g. Rahul (Friend) or Mom" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                        {{ t('lbl_contact_id') }}
+                    </label>
+                    <input type="text" name="contact_identifier" required placeholder="e.g. +91 98765 43210 or friend@gmail.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500 font-mono">
+                    <span class="text-[11px] text-slate-500 block mt-0.5">{{ t('contacts_phone_format_tip') }}</span>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
+                        {{ t('lbl_contact_notes') }}
+                    </label>
+                    <input type="text" name="notes" placeholder="e.g. College Friend, Project Partner" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500 text-xs">
+                </div>
+
+                <div class="pt-2">
+                    <button type="submit" class="w-full py-2.5 rounded-xl font-bold text-xs text-white bg-emerald-600 hover:bg-emerald-500 shadow-md shadow-emerald-600/30 transition-all flex items-center justify-center space-x-1.5">
+                        <i class="fa-solid fa-check"></i>
+                        <span>{{ t('btn_save_contact') }}</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Contacts Ledger Table -->
+        <div class="md:col-span-8 bg-slate-900/90 border border-slate-800 rounded-2xl p-6 shadow-xl">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-base font-bold text-white flex items-center">
+                    <i class="fa-solid fa-address-book text-indigo-400 mr-2"></i> {{ t('contacts_hero_title') }} ({{ contacts|length }})
+                </h2>
+                <span class="text-xs text-emerald-400 font-semibold bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
+                    {{ t('auto_override_active') }}
+                </span>
+            </div>
+
+            {% if contacts and contacts|length > 0 %}
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="border-b border-slate-800 text-slate-400 text-xs uppercase font-mono">
+                        <tr>
+                            <th class="pb-3 font-semibold">{{ t('tbl_contact_name') }}</th>
+                            <th class="pb-3 font-semibold">{{ t('tbl_contact_id') }}</th>
+                            <th class="pb-3 font-semibold">{{ t('lbl_contact_notes') }}</th>
+                            <th class="pb-3 text-right font-semibold">{{ t('tbl_contact_actions') }}</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800/60">
+                        {% for c in contacts %}
+                        <tr class="hover:bg-slate-800/30 transition-colors">
+                            <td class="py-3 font-semibold text-white">
+                                <i class="fa-solid fa-circle-check text-emerald-400 mr-1.5 text-xs"></i>
+                                {{ c.display_name }}
+                            </td>
+                            <td class="py-3 font-mono text-xs text-cyan-300">
+                                {{ c.contact_identifier }}
+                            </td>
+                            <td class="py-3 text-xs text-slate-400">
+                                {{ c.notes or '—' }}
+                            </td>
+                            <td class="py-3 text-right">
+                                <form method="POST" action="{{ url_for('delete_contact', contact_id=c.id) }}" onsubmit="return confirm('{{ t('delete_contact_confirm') }}')">
+                                    <button type="submit" class="text-xs text-slate-500 hover:text-rose-400 transition-colors" title="Delete">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-12 text-slate-500 text-xs">
+                <div class="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-3 text-slate-600">
+                    <i class="fa-solid fa-user-slash text-xl"></i>
+                </div>
+                <p class="text-slate-400 font-semibold mb-1">{{ t('no_contacts_empty') }}</p>
+                <p class="text-slate-500 max-w-sm mx-auto">
+                    {{ t('contacts_subtitle') }}
+                </p>
+            </div>
+            {% endif %}
+        </div>
+
+    </div>
+
+</div>
+{% endblock %}

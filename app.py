@@ -1,0 +1,330 @@
+import os
+import sys
+from datetime import datetime
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from werkzeug.security import generate_password_hash, check_password_hash
+
+# Ensure project root is in sys.path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from db import db
+from src.predict import predictor
+from src.translations import t as translate_func, localize_risk_result, CLASSIFICATION_TRANSLATIONS_BN
+
+app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "spam-mail-risk-analyzer-secret-key-2026")
+
+@app.context_processor
+def inject_global():
+    user = None
+    if 'user_id' in session:
+        user = db.get_user_by_id(session['user_id'])
+    cur_lang = session.get('lang', 'en')
+    return {
+        'current_user': user,
+        'db_engine': db.engine.upper(),
+        'db_status': db.status_msg,
+        'now': datetime.now(),
+        'current_lang': cur_lang,
+        't': lambda key, default=None: translate_func(key, lang=session.get('lang', 'en'), default=default)
+    }
+
+@app.route('/set-language/<lang>')
+def set_language(lang):
+    """Sets the active UI and report language (English or Bengali / বাংলা)."""
+    if lang in ['en', 'bn']:
+        session['lang'] = lang
+    ref = request.referrer
+    if ref and (request.host in ref):
+        return redirect(ref)
+    return redirect(url_for('index'))
+
+# ----------------- AUTHENTICATION ROUTES ----------------- #
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+
+        if not name or not email or not password:
+            flash('All fields are required.', 'danger')
+            return render_template('register.html')
+
+        existing = db.get_user_by_email(email)
+        if existing:
+            flash('An account with this email already exists. Please login.', 'warning')
+            return redirect(url_for('login'))
+
+        pwd_hash = generate_password_hash(password)
+        user_id = db.create_user(name, email, pwd_hash)
+        session['user_id'] = user_id
+        session['user_name'] = name
+        flash(f'Welcome, {name}! Your account has been created.', 'success')
+        return redirect(url_for('index'))
+
+    return render_template('register.html')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+
+        user = db.get_user_by_email(email)
+        if user and check_password_hash(user['password_hash'], password):
+            session['user_id'] = user['id']
+            session['user_name'] = user['name']
+            flash(f'Welcome back, {user["name"]}!', 'success')
+            return redirect(url_for('index'))
+        else:
+            flash('Invalid email or password. Please try again.', 'danger')
+
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    flash('You have been logged out successfully.', 'info')
+    return redirect(url_for('index'))
+
+# ----------------- TRUSTED CONTACTS (WHITELIST) ROUTES ----------------- #
+
+@app.route('/contacts')
+def contacts_page():
+    """Manage known persons/contacts whitelist to eliminate false positives."""
+    user_id = session.get('user_id') if 'user_id' in session else None
+    contacts = db.get_trusted_contacts(user_id=user_id)
+    return render_template('contacts.html', contacts=contacts)
+
+@app.route('/contacts/add', methods=['POST'])
+def add_contact():
+    name = request.form.get('display_name', '').strip()
+    identifier = request.form.get('contact_identifier', '').strip()
+    notes = request.form.get('notes', '').strip()
+    user_id = session.get('user_id') if 'user_id' in session else None
+
+    if not name or not identifier:
+        flash('Name and Phone/Email are required.', 'warning')
+        return redirect(url_for('contacts_page'))
+
+    contact_type = 'EMAIL' if '@' in identifier else 'PHONE'
+    db.add_trusted_contact(identifier, name, contact_type=contact_type, user_id=user_id, notes=notes)
+    flash(f'Added {name} ({identifier}) to your Trusted Contacts. Messages from this sender will now be recognized as safe!', 'success')
+    return redirect(url_for('contacts_page'))
+
+@app.route('/contacts/delete/<int:contact_id>', methods=['POST'])
+def delete_contact(contact_id):
+    user_id = session.get('user_id') if 'user_id' in session else None
+    db.delete_trusted_contact(contact_id, user_id=user_id)
+    flash('Contact removed from trusted whitelist.', 'info')
+    return redirect(url_for('contacts_page'))
+
+@app.route('/api/mark-safe', methods=['POST'])
+def api_mark_safe():
+    """1-Click button from the Result page to resolve false positive and add sender to whitelist."""
+    data = request.get_json() or {}
+    email_id = data.get('email_id')
+    contact_name = data.get('contact_name', 'Known Contact')
+
+    if not email_id:
+        return jsonify({'success': False, 'error': 'Missing email_id'}), 400
+
+    success = db.mark_email_as_safe(email_id, contact_name=contact_name)
+    return jsonify({'success': success})
+
+# ----------------- MAIN CORE ROUTES ----------------- #
+
+@app.route('/')
+def index():
+    """Main Email & SMS Risk Analyzer Studio."""
+    return render_template('index.html')
+
+@app.route('/analyze', methods=['POST'])
+def analyze_email():
+    """Processes Email or SMS, runs ML & Phone/URL analysis, and stores in database."""
+    message_type = request.form.get('message_type', 'AUTO').strip()
+    sender = request.form.get('sender', '').strip()
+    subject = request.form.get('subject', '').strip()
+    email_content = request.form.get('email_content', '').strip()
+    is_explicit_trusted = (request.form.get('is_trusted_sender') == '1')
+
+    if not email_content:
+        flash('Please enter email or SMS message content to analyze.', 'warning')
+        return redirect(url_for('index'))
+
+    if message_type == 'SMS':
+        sender = sender or '+91-UNKNOWN'
+        subject = subject or '(SMS Alert)'
+    else:
+        sender = sender or 'Unknown Sender'
+        subject = subject or '(No Subject)'
+
+    user_id = session.get('user_id', None)
+
+    # If user explicitly checked 'Sender is a known person', save to trusted contacts
+    if is_explicit_trusted:
+        c_type = 'EMAIL' if '@' in sender else 'PHONE'
+        db.add_trusted_contact(sender, "Known Person (Self-Declared)", contact_type=c_type, user_id=user_id)
+
+    # Run unified prediction pipeline with whitelist check
+    result = predictor.analyze(
+        email_content,
+        sender=sender,
+        subject=subject,
+        message_type=message_type,
+        user_id=user_id,
+        is_explicit_trusted=is_explicit_trusted
+    )
+
+    # Persist in MySQL / SQLite
+    email_id = db.save_analysis(
+        user_id=user_id,
+        sender=sender,
+        subject=subject,
+        email_content=email_content,
+        classification=result['classification'],
+        spam_probability=result['spam_probability'],
+        url_analyses=result['urls'],
+        phone_analyses=result['phones'],
+        message_type=result['message_type'],
+        is_trusted=1 if result['is_trusted_contact'] else 0
+    )
+
+    return redirect(url_for('view_result', email_id=email_id))
+
+@app.route('/result/<int:email_id>')
+def view_result(email_id):
+    """Displays comprehensive Security Report Card with URLs, Phone Numbers, and Trusted Status."""
+    email_data = db.get_email_details(email_id)
+    if not email_data:
+        flash('Report not found.', 'danger')
+        return redirect(url_for('index'))
+
+    urls = email_data.get('urls', [])
+    phones = email_data.get('phones', [])
+    is_trusted = bool(email_data.get('is_trusted_sender', 0)) or bool(db.is_trusted_contact(email_data['sender']))
+
+    top_url = None
+    if urls:
+        urls = sorted(urls, key=lambda x: float(x.get('risk_probability', 0)), reverse=True)
+        top_url = {
+            'url_risk_prob': float(urls[0]['risk_probability']) / 100.0,
+            'matched_keywords': [urls[0]['risk_type']],
+            'has_dangerous_ext': '.exe' in urls[0]['url'] or 'MALWARE' in urls[0]['risk_type']
+        }
+
+    from src.risk_analyzer import calculate_risk
+    from src.phone_analyzer import analyze_phone_sender
+    from src.predict import CONVERSATIONAL_MARKERS, IMPERSONATION_TERMS
+    import re
+
+    text_lower = (email_data.get('email_content') or '').lower()
+    has_conversational = any(re.search(rf'\b{re.escape(cm)}\b', text_lower) for cm in CONVERSATIONAL_MARKERS)
+    has_impersonation = any(it in text_lower for it in IMPERSONATION_TERMS)
+    is_autonomous_personal = has_conversational and not has_impersonation
+
+    if is_trusted:
+        overall_risk = {
+            'risk_probability': 2.0,
+            'risk_level': 'VERY LOW',
+            'risk_badge': '🟢 Very Low',
+            'risk_type': 'VERIFIED KNOWN CONTACT / SAFE',
+            'possible_consequence': 'Message originated from a known contact on your verified whitelist. No security threats detected.',
+            'recommendation': 'SAFE TO INTERACT. This contact is recognized as legitimate.'
+        }
+        sender_analysis = None
+    elif is_autonomous_personal and email_data['classification'] == 'HAM':
+        overall_risk = {
+            'risk_probability': max(1.5, round(float(email_data['spam_probability']), 1)),
+            'risk_level': 'VERY LOW',
+            'risk_badge': '🟢 Very Low',
+            'risk_type': 'PERSONAL COMMUNICATION / SAFE (AI Auto-Sensed)',
+            'possible_consequence': 'Autonomous AI detection recognized natural human conversational language and everyday peer interaction. No cyber threats found.',
+            'recommendation': 'SAFE TO INTERACT. The AI senses this as authentic personal communication.'
+        }
+        sender_analysis = analyze_phone_sender(email_data['sender'], email_data['email_content'])
+    else:
+        sender_analysis = analyze_phone_sender(email_data['sender'], email_data['email_content'])
+        overall_risk = calculate_risk(
+            float(email_data['spam_probability']) / 100.0,
+            top_url,
+            email_data['email_content'],
+            phone_analyses=phones,
+            sender_analysis=sender_analysis
+        )
+    from src.geo_locator import locate_sender, locate_url_hosts, locate_callback_phones, build_interactive_map_payload
+
+    sender_geo = locate_sender(email_data.get('sender'), email_data.get('message_type'))
+    url_geos = locate_url_hosts(urls)
+    phone_geos = locate_callback_phones(phones)
+    map_pins = build_interactive_map_payload(sender_geo, url_geos=url_geos, phone_geos=phone_geos)
+
+    cur_lang = session.get('lang', 'en')
+    if cur_lang == 'bn':
+        overall_risk = localize_risk_result(overall_risk, lang='bn')
+
+    return render_template(
+        'result.html',
+        email=email_data,
+        urls=urls,
+        phones=phones,
+        sender_analysis=sender_analysis,
+        overall_risk=overall_risk,
+        is_autonomous_personal=is_autonomous_personal,
+        sender_geo=sender_geo,
+        url_geos=url_geos,
+        phone_geos=phone_geos,
+        map_pins=map_pins
+    )
+
+@app.route('/history')
+def history():
+    """Audit ledger of all analyzed emails and SMS messages."""
+    user_id = session.get('user_id') if 'user_id' in session else None
+    records = db.get_history(user_id=user_id, limit=100)
+    return render_template('history.html', records=records)
+
+@app.route('/dashboard')
+def dashboard():
+    """Executive security dashboard with visual KPIs and charts."""
+    user_id = session.get('user_id') if 'user_id' in session else None
+    metrics = db.get_dashboard_metrics(user_id=user_id)
+    return render_template('dashboard.html', metrics=metrics, model_metrics=predictor.metrics)
+
+# ----------------- REST API ----------------- #
+
+@app.route('/api/analyze', methods=['POST'])
+def api_analyze():
+    data = request.get_json() or {}
+    message_type = data.get('message_type', 'AUTO')
+    sender = data.get('sender', '+91 9876543210' if message_type == 'SMS' else 'api@client.com')
+    subject = data.get('subject', '(SMS Message)' if message_type == 'SMS' else 'API Request')
+    content = data.get('email_content', '')
+    is_trusted = data.get('is_trusted', False)
+
+    if not content:
+        return jsonify({'success': False, 'error': 'Missing email_content'}), 400
+
+    result = predictor.analyze(content, sender=sender, subject=subject, message_type=message_type, is_explicit_trusted=is_trusted)
+    email_id = db.save_analysis(
+        user_id=None,
+        sender=sender,
+        subject=subject,
+        email_content=content,
+        classification=result['classification'],
+        spam_probability=result['spam_probability'],
+        url_analyses=result['urls'],
+        phone_analyses=result['phones'],
+        message_type=result['message_type'],
+        is_trusted=1 if result['is_trusted_contact'] else 0
+    )
+    result['email_id'] = email_id
+    result['success'] = True
+    return jsonify(result)
+
+if __name__ == '__main__':
+    port = int(os.getenv("PORT", 5000))
+    print(f"Spam Mail & SMS Phone Threat Analysis System running on http://127.0.0.1:{port}")
+    app.run(host='0.0.0.0', port=port, debug=True)

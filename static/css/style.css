@@ -1,0 +1,36 @@
+/* Custom styling for Spam Mail Detection & Email Risk Analysis System */
+
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #020617;
+}
+::-webkit-scrollbar-thumb {
+    background: #1e293b;
+    border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+}
+
+/* Cyber glow effects */
+.glow-cyan {
+    box-shadow: 0 0 20px rgba(6, 182, 212, 0.25);
+}
+
+.glow-rose {
+    box-shadow: 0 0 20px rgba(244, 63, 94, 0.25);
+}
+
+.glow-emerald {
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.25);
+}
+
+/* Glassmorphic Cards */
+.card-glass {
+    background: rgba(15, 23, 42, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(51, 65, 85, 0.5);
+}

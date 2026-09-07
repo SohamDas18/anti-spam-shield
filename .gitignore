@@ -1,0 +1,19 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.class
+*.exe
+cloudflared.exe
+
+# Environments
+.env
+venv/
+env/
+ENV/
+
+# Database
+*.sqlite3
+
+# IDEs
+.vscode/
+.idea/
