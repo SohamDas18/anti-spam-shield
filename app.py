@@ -207,6 +207,60 @@ def logout():
     resp.set_cookie(app.config.get('SESSION_COOKIE_NAME', 'session'), '', expires=0, max_age=0)
     return resp
 
+@app.route('/reset-password', methods=['GET', 'POST'])
+def reset_password():
+    """Allow users to reset their password or reactivate an account seamlessly."""
+    if get_current_authenticated_user():
+        return redirect(url_for('dashboard'))
+
+    prefill_email = request.args.get('email', '').strip().lower()
+
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        new_password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        if not email or not new_password or not confirm_password:
+            flash('All fields are required to update your password.', 'danger')
+            return render_template('reset_password.html', email=email)
+
+        if not EMAIL_REGEX.match(email):
+            flash('Please enter a valid email address.', 'warning')
+            return render_template('reset_password.html', email=email)
+
+        new_password_clean = new_password.strip()
+        confirm_password_clean = confirm_password.strip()
+
+        if len(new_password_clean) < 6:
+            flash('New password must be at least 6 characters long.', 'warning')
+            return render_template('reset_password.html', email=email)
+
+        if new_password_clean != confirm_password_clean:
+            flash('New Password and Confirm Password do not match. Please verify.', 'warning')
+            return render_template('reset_password.html', email=email)
+
+        pwd_hash = generate_password_hash(new_password_clean)
+        user = db.get_user_by_email(email)
+
+        if user:
+            db.update_password(email, pwd_hash)
+            user = db.get_user_by_email(email)
+            flash('Password reset successfully! Your new password is now active.', 'success')
+        else:
+            display_name = email.split('@')[0].replace('.', ' ').title()
+            db.create_user(display_name, email, pwd_hash)
+            user = db.get_user_by_email(email)
+            flash('Account created & password saved successfully! You are now logged in.', 'success')
+
+        # Automatically log user in
+        session.permanent = True
+        session['user_id'] = user['id']
+        session['user_name'] = user['name']
+        session['user_email'] = user['email']
+        return redirect(url_for('dashboard'))
+
+    return render_template('reset_password.html', email=prefill_email)
+
 # ----------------- TRUSTED CONTACTS (WHITELIST) ROUTES ----------------- #
 
 @app.route('/contacts')

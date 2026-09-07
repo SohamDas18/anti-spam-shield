@@ -1,13 +1,23 @@
 import os
 import re
 import json
+import logging
 import sqlite3
 import pymysql
 import pymysql.cursors
 from dotenv import load_dotenv
 
-load_dotenv()
+try:
+    import psycopg2
+    import psycopg2.extras
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    PSYCOPG2_AVAILABLE = False
 
+load_dotenv()
+logger = logging.getLogger(__name__)
+
+DATABASE_URL = os.getenv("DATABASE_URL") or os.getenv("POSTGRES_URL")
 DB_HOST = os.getenv("DB_HOST", "localhost")
 DB_PORT = int(os.getenv("DB_PORT", 3306))
 DB_USER = os.getenv("DB_USER", "root")
@@ -33,9 +43,27 @@ class Database:
     def __init__(self):
         self.engine = "sqlite"
         self.status_msg = ""
+        self.pg_url = None
         self.init_connection()
 
     def init_connection(self):
+        # 1. First priority: Persistent Cloud PostgreSQL (Render Free Database / Supabase)
+        if DATABASE_URL and PSYCOPG2_AVAILABLE:
+            try:
+                pg_url = DATABASE_URL
+                if pg_url.startswith("postgres://"):
+                    pg_url = pg_url.replace("postgres://", "postgresql://", 1)
+                conn = psycopg2.connect(pg_url, connect_timeout=4)
+                conn.close()
+                self.engine = "postgres"
+                self.pg_url = pg_url
+                self.status_msg = "Connected to Persistent Cloud PostgreSQL (Permanent Storage)"
+                self._create_postgres_tables()
+                return
+            except Exception as e:
+                logger.warning(f"PostgreSQL connection failed, trying MySQL/SQLite fallback: {e}")
+
+        # 2. Second priority: MySQL
         try:
             conn = pymysql.connect(
                 host=DB_HOST,
@@ -61,13 +89,17 @@ class Database:
             self.engine = "mysql"
             self.status_msg = f"Connected to MySQL ({DB_HOST}:{DB_PORT}/{DB_NAME})"
             self._create_mysql_tables()
+            return
         except Exception as e:
+            # 3. Third priority: SQLite fallback with auto-seeded persistent admin accounts
             self.engine = "sqlite"
-            self.status_msg = f"Using SQLite Fallback ({os.path.basename(SQLITE_PATH)}). MySQL reason: {str(e)[:60]}..."
+            self.status_msg = f"Using SQLite ({os.path.basename(SQLITE_PATH)})"
             self._create_sqlite_tables()
 
     def get_connection(self):
-        if self.engine == "mysql":
+        if self.engine == "postgres":
+            return psycopg2.connect(self.pg_url)
+        elif self.engine == "mysql":
             return pymysql.connect(
                 host=DB_HOST,
                 port=DB_PORT,
@@ -161,6 +193,88 @@ class Database:
         finally:
             conn.close()
 
+    def _create_postgres_tables(self):
+        queries = [
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                email VARCHAR(150) UNIQUE NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS emails (
+                id SERIAL PRIMARY KEY,
+                user_id INT NULL,
+                message_type VARCHAR(20) DEFAULT 'EMAIL',
+                sender VARCHAR(255),
+                subject VARCHAR(500),
+                email_content TEXT NOT NULL,
+                classification VARCHAR(20) NOT NULL,
+                spam_probability DECIMAL(5, 2) NOT NULL,
+                phone_numbers TEXT,
+                is_trusted_sender INT DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS url_analysis (
+                id SERIAL PRIMARY KEY,
+                email_id INT NOT NULL,
+                url TEXT NOT NULL,
+                risk_probability DECIMAL(5, 2) NOT NULL,
+                risk_level VARCHAR(20) NOT NULL,
+                risk_type VARCHAR(100) NOT NULL,
+                possible_consequence TEXT,
+                recommendation TEXT,
+                analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS phone_analysis (
+                id SERIAL PRIMARY KEY,
+                email_id INT NOT NULL,
+                phone_number VARCHAR(50) NOT NULL,
+                country VARCHAR(100),
+                number_type VARCHAR(50),
+                risk_probability DECIMAL(5, 2) NOT NULL,
+                risk_level VARCHAR(20) NOT NULL,
+                flags TEXT,
+                analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS trusted_contacts (
+                id SERIAL PRIMARY KEY,
+                user_id INT NULL,
+                contact_identifier VARCHAR(255) NOT NULL,
+                display_name VARCHAR(100) NOT NULL,
+                contact_type VARCHAR(20) DEFAULT 'PHONE',
+                notes VARCHAR(255),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        ]
+        conn = self.get_connection()
+        try:
+            with conn.cursor() as cursor:
+                for q in queries:
+                    cursor.execute(q)
+                for u_name, u_email in [
+                    ("Soham Das", "sohamdas9231@gmail.com"),
+                    ("Soham Das", "sohamdas544@gmail.com")
+                ]:
+                    cursor.execute("""
+                        INSERT INTO users (name, email, password_hash)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (email) DO NOTHING;
+                    """, (u_name, u_email, "scrypt:32768:8:1$nzWTRVT3C4Lwh3pN$a5e7d1f2072ccbcce645316973cd4e7ec13171c1619350259a986cece039f4f6246ce4d89e9a801d08043456f30f82474cb1c88068bdbdc4a28a9e1f1258659a"))
+            conn.commit()
+        finally:
+            conn.close()
+
     def _create_sqlite_tables(self):
         queries = [
             """
@@ -244,6 +358,17 @@ class Database:
                     cursor.execute(col_query)
                 except Exception:
                     pass
+
+            # Ensure essential admin accounts always exist in SQLite even on fresh container clone
+            for u_name, u_email in [
+                ("Soham Das", "sohamdas9231@gmail.com"),
+                ("Soham Das", "sohamdas544@gmail.com")
+            ]:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO users (name, email, password_hash)
+                    VALUES (?, ?, ?)
+                """, (u_name, u_email, "scrypt:32768:8:1$nzWTRVT3C4Lwh3pN$a5e7d1f2072ccbcce645316973cd4e7ec13171c1619350259a986cece039f4f6246ce4d89e9a801d08043456f30f82474cb1c88068bdbdc4a28a9e1f1258659a"))
+
             conn.commit()
         finally:
             conn.close()
@@ -264,6 +389,31 @@ class Database:
                 if commit:
                     conn.commit()
                 return cursor.lastrowid
+            elif self.engine == "postgres":
+                is_insert = query.strip().upper().startswith("INSERT")
+                actual_query = query
+                if is_insert and "RETURNING" not in query.upper():
+                    actual_query = query.rstrip().rstrip(";") + " RETURNING id;"
+
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                    cursor.execute(actual_query, params or ())
+                    if fetchone:
+                        res = cursor.fetchone()
+                        return dict(res) if res else None
+                    if fetchall:
+                        res = cursor.fetchall()
+                        return [dict(r) for r in res]
+                    last_id = None
+                    if is_insert:
+                        try:
+                            row = cursor.fetchone()
+                            if row and 'id' in row:
+                                last_id = row['id']
+                        except Exception:
+                            pass
+                    if commit:
+                        conn.commit()
+                    return last_id
             else:
                 with conn.cursor() as cursor:
                     cursor.execute(query, params or ())
@@ -282,6 +432,11 @@ class Database:
         email_clean = (email or '').strip().lower()
         q = "INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s)"
         return self.execute_query(q, (name, email_clean, password_hash), commit=True)
+
+    def update_password(self, email, password_hash):
+        email_clean = (email or '').strip().lower()
+        q = "UPDATE users SET password_hash = %s WHERE LOWER(email) = LOWER(%s)"
+        return self.execute_query(q, (password_hash, email_clean), commit=True)
 
     def get_user_by_email(self, email):
         email_clean = (email or '').strip().lower()
