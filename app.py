@@ -1,6 +1,8 @@
 import os
 import sys
-from datetime import datetime
+import re
+from datetime import datetime, timedelta
+from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -12,7 +14,34 @@ from src.predict import predictor
 from src.translations import t as translate_func, localize_risk_result, CLASSIFICATION_TRANSLATIONS_BN
 
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "spam-mail-risk-analyzer-secret-key-2026")
+app.secret_key = os.getenv("SECRET_KEY", "sentinel-ai-cyber-threat-secret-2026")
+app.permanent_session_lifetime = timedelta(days=7)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax'
+)
+
+EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$')
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session or not session.get('user_id'):
+            if request.path.startswith('/api/'):
+                # Check for API Key header for headless/automated clients
+                api_key = request.headers.get('X-API-Key') or request.headers.get('Authorization', '').replace('Bearer ', '')
+                expected_key = os.getenv('API_KEY', 'sentinel-secure-api-key')
+                if api_key and api_key == expected_key:
+                    return f(*args, **kwargs)
+                return jsonify({
+                    'success': False,
+                    'error': 'Authentication required. Please log in or provide a valid API Key.',
+                    'authenticated': False
+                }), 401
+            flash('Access restricted. Please log in or register to access the Sentinel threat analyzer.', 'warning')
+            return redirect(url_for('login', next=request.path))
+        return f(*args, **kwargs)
+    return decorated_function
 
 @app.context_processor
 def inject_global():
@@ -43,55 +72,101 @@ def set_language(lang):
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    """Register a new user account with full backend validation and password hashing."""
+    if 'user_id' in session and session.get('user_id'):
+        return redirect(url_for('index'))
+
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
 
-        if not name or not email or not password:
-            flash('All fields are required.', 'danger')
-            return render_template('register.html')
+        # 1. Required fields
+        if not name or not email or not password or not confirm_password:
+            flash('All registration fields are required.', 'danger')
+            return render_template('register.html', name=name, email=email)
 
+        # 2. Name validation
+        if len(name) < 2 or len(name) > 100:
+            flash('Full Name must be between 2 and 100 characters.', 'warning')
+            return render_template('register.html', name=name, email=email)
+
+        # 3. Email format validation
+        if not EMAIL_REGEX.match(email):
+            flash('Please enter a valid email address (e.g. analyst@sentinel.shield).', 'warning')
+            return render_template('register.html', name=name, email=email)
+
+        # 4. Password security requirements
+        if len(password) < 6:
+            flash('Password must be at least 6 characters long.', 'warning')
+            return render_template('register.html', name=name, email=email)
+
+        # 5. Password confirmation
+        if password != confirm_password:
+            flash('Password and Confirm Password do not match. Please verify.', 'warning')
+            return render_template('register.html', name=name, email=email)
+
+        # 6. Duplicate email check
         existing = db.get_user_by_email(email)
         if existing:
-            flash('An account with this email already exists. Please login.', 'warning')
+            flash('An account with this email already exists. Please log in.', 'warning')
             return redirect(url_for('login'))
 
+        # Secure password hashing (Werkzeug PBKDF2/scrypt)
         pwd_hash = generate_password_hash(password)
-        user_id = db.create_user(name, email, pwd_hash)
-        session['user_id'] = user_id
-        session['user_name'] = name
-        flash(f'Welcome, {name}! Your account has been created.', 'success')
-        return redirect(url_for('index'))
+        db.create_user(name, email, pwd_hash)
+
+        flash('Account created successfully! Please sign in with your credentials.', 'success')
+        return redirect(url_for('login'))
 
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    """Authenticate user with email and securely hashed password."""
+    if 'user_id' in session and session.get('user_id'):
+        return redirect(url_for('index'))
+
+    next_url = request.args.get('next') or request.form.get('next')
+
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '')
 
+        if not email or not password:
+            flash('Please enter both your email address and password.', 'warning')
+            return render_template('login.html', email=email, next_url=next_url)
+
         user = db.get_user_by_email(email)
         if user and check_password_hash(user['password_hash'], password):
+            session.permanent = True
             session['user_id'] = user['id']
             session['user_name'] = user['name']
-            flash(f'Welcome back, {user["name"]}!', 'success')
+            session['user_email'] = user['email']
+            flash(f'Welcome back, {user["name"]}! Sentinel Threat Analysis Console unlocked.', 'success')
+
+            # Safe redirection against open redirect attacks
+            if next_url and next_url.startswith('/') and not next_url.startswith('//'):
+                return redirect(next_url)
             return redirect(url_for('index'))
         else:
-            flash('Invalid email or password. Please try again.', 'danger')
+            flash('Invalid email or password. Please verify your credentials.', 'danger')
+            return render_template('login.html', email=email, next_url=next_url)
 
-    return render_template('login.html')
+    return render_template('login.html', next_url=next_url)
 
 @app.route('/logout')
 def logout():
+    """Securely clears session and redirects to the Login page."""
     session.clear()
-    flash('You have been logged out successfully.', 'info')
-    return redirect(url_for('index'))
+    flash('You have been securely logged out of Sentinel.', 'info')
+    return redirect(url_for('login'))
 
 # ----------------- TRUSTED CONTACTS (WHITELIST) ROUTES ----------------- #
 
 @app.route('/contacts')
+@login_required
 def contacts_page():
     """Manage known persons/contacts whitelist to eliminate false positives."""
     user_id = session.get('user_id') if 'user_id' in session else None
@@ -99,6 +174,7 @@ def contacts_page():
     return render_template('contacts.html', contacts=contacts)
 
 @app.route('/contacts/add', methods=['POST'])
+@login_required
 def add_contact():
     name = request.form.get('display_name', '').strip()
     identifier = request.form.get('contact_identifier', '').strip()
@@ -115,6 +191,7 @@ def add_contact():
     return redirect(url_for('contacts_page'))
 
 @app.route('/contacts/delete/<int:contact_id>', methods=['POST'])
+@login_required
 def delete_contact(contact_id):
     user_id = session.get('user_id') if 'user_id' in session else None
     db.delete_trusted_contact(contact_id, user_id=user_id)
@@ -122,6 +199,7 @@ def delete_contact(contact_id):
     return redirect(url_for('contacts_page'))
 
 @app.route('/api/mark-safe', methods=['POST'])
+@login_required
 def api_mark_safe():
     """1-Click button from the Result page to resolve false positive and add sender to whitelist."""
     data = request.get_json() or {}
@@ -138,10 +216,19 @@ def api_mark_safe():
 
 @app.route('/')
 def index():
-    """Main Email & SMS Risk Analyzer Studio."""
+    """Main route: If authenticated, render Sentinel Threat Analyzer. If unauthenticated, redirect to Login."""
+    if 'user_id' not in session or not session.get('user_id'):
+        return redirect(url_for('login'))
+    return render_template('index.html')
+
+@app.route('/analyzer')
+@login_required
+def analyzer():
+    """Dedicated alias for the Sentinel Threat Analyzer Studio."""
     return render_template('index.html')
 
 @app.route('/analyze', methods=['POST'])
+@login_required
 def analyze_email():
     """Processes Email or SMS, runs ML & Phone/URL analysis, and stores in database."""
     message_type = request.form.get('message_type', 'AUTO').strip()
@@ -195,6 +282,7 @@ def analyze_email():
     return redirect(url_for('view_result', email_id=email_id))
 
 @app.route('/result/<int:email_id>')
+@login_required
 def view_result(email_id):
     """Displays comprehensive Security Report Card with URLs, Phone Numbers, and Trusted Status."""
     email_data = db.get_email_details(email_id)
@@ -280,6 +368,7 @@ def view_result(email_id):
     )
 
 @app.route('/history')
+@login_required
 def history():
     """Audit ledger of all analyzed emails and SMS messages."""
     user_id = session.get('user_id') if 'user_id' in session else None
@@ -287,6 +376,7 @@ def history():
     return render_template('history.html', records=records)
 
 @app.route('/dashboard')
+@login_required
 def dashboard():
     """Executive security dashboard with visual KPIs and charts."""
     user_id = session.get('user_id') if 'user_id' in session else None
@@ -296,6 +386,7 @@ def dashboard():
 # ----------------- REST API ----------------- #
 
 @app.route('/api/analyze', methods=['POST'])
+@login_required
 def api_analyze():
     data = request.get_json() or {}
     message_type = data.get('message_type', 'AUTO')
@@ -307,9 +398,10 @@ def api_analyze():
     if not content:
         return jsonify({'success': False, 'error': 'Missing email_content'}), 400
 
-    result = predictor.analyze(content, sender=sender, subject=subject, message_type=message_type, is_explicit_trusted=is_trusted)
+    user_id = session.get('user_id', None)
+    result = predictor.analyze(content, sender=sender, subject=subject, message_type=message_type, is_explicit_trusted=is_trusted, user_id=user_id)
     email_id = db.save_analysis(
-        user_id=None,
+        user_id=user_id,
         sender=sender,
         subject=subject,
         email_content=content,

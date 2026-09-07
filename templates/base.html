@@ -58,9 +58,10 @@
                     </a>
                 </div>
 
+                {% if current_user %}
                 <!-- Navigation Links -->
                 <nav class="hidden md:flex items-center space-x-1">
-                    <a href="{{ url_for('index') }}" class="px-3 py-2 rounded-lg text-sm font-medium transition-colors {% if request.endpoint == 'index' %}bg-slate-800 text-cyan-400 font-semibold{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-cyan-400{% endif %}">
+                    <a href="{{ url_for('index') }}" class="px-3 py-2 rounded-lg text-sm font-medium transition-colors {% if request.endpoint in ['index', 'analyzer'] %}bg-slate-800 text-cyan-400 font-semibold{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-cyan-400{% endif %}">
                         <i class="fa-solid fa-magnifying-glass-chart mr-1.5 text-cyan-400"></i> {{ t('nav_scan') }}
                     </a>
                     <a href="{{ url_for('dashboard') }}" class="px-3 py-2 rounded-lg text-sm font-medium transition-colors {% if request.endpoint == 'dashboard' %}bg-slate-800 text-cyan-400 font-semibold{% else %}text-slate-300 hover:bg-slate-800/60 hover:text-cyan-400{% endif %}">
@@ -73,6 +74,7 @@
                         <i class="fa-solid fa-user-check mr-1.5 text-emerald-400"></i> {{ t('nav_contacts') }}
                     </a>
                 </nav>
+                {% endif %}
 
                 <!-- Status, Language Switcher & Auth Area -->
                 <div class="flex items-center space-x-2 sm:space-x-3">
@@ -183,11 +185,14 @@
                     </div>
 
                     {% if current_user %}
-                    <div class="flex items-center space-x-2 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700/60 text-xs">
-                        <i class="fa-solid fa-user-shield text-cyan-400"></i>
-                        <span class="font-semibold text-white">{{ current_user.name }}</span>
-                        <a href="{{ url_for('logout') }}" class="text-slate-400 hover:text-rose-400 ml-2" title="{{ t('nav_logout') }}">
-                            <i class="fa-solid fa-arrow-right-from-bracket"></i>
+                    <div class="flex items-center space-x-2">
+                        <div class="flex items-center space-x-1.5 bg-slate-800/90 px-3 py-1.5 rounded-xl border border-slate-700/70 text-xs">
+                            <i class="fa-solid fa-user-shield text-cyan-400"></i>
+                            <span class="font-semibold text-white max-w-[120px] truncate">{{ current_user.name }}</span>
+                        </div>
+                        <a href="{{ url_for('logout') }}" class="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-white border border-rose-500/30 text-xs font-semibold flex items-center space-x-1.5 transition-all shadow-sm" title="Sign Out">
+                            <i class="fa-solid fa-arrow-right-from-bracket text-xs"></i>
+                            <span>Logout</span>
                         </a>
                     </div>
                     {% else %}

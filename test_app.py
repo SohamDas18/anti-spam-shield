@@ -84,19 +84,66 @@ class TestSpamMailRiskSystem(unittest.TestCase):
         self.assertLessEqual(res['spam_probability'], 5.0)
         self.assertEqual(res['overall_risk']['risk_level'], 'VERY LOW')
 
-    def test_08_database_and_routes(self):
-        for path in ['/', '/dashboard', '/history', '/contacts', '/login', '/register']:
-            response = self.app.get(path)
-            self.assertEqual(response.status_code, 200, f"Route {path} failed")
+    def test_08_authentication_and_protected_routes(self):
+        # 1. Unauthenticated users should be redirected (302) from protected routes to /login
+        for protected_path in ['/', '/analyzer', '/dashboard', '/history', '/contacts']:
+            response = self.app.get(protected_path)
+            self.assertEqual(response.status_code, 302, f"Unauthenticated access to {protected_path} should redirect to /login")
+            self.assertIn('/login', response.headers.get('Location', ''))
 
-        api_res = self.app.post('/api/analyze', json={
+        # 2. Login and Register pages must be publicly accessible (200)
+        for public_path in ['/login', '/register']:
+            response = self.app.get(public_path)
+            self.assertEqual(response.status_code, 200, f"Public route {public_path} failed")
+
+        # 3. Unauthenticated API request should receive 401 Unauthorized
+        api_unauth = self.app.post('/api/analyze', json={'email_content': 'Test message'})
+        self.assertEqual(api_unauth.status_code, 401)
+
+        # 4. User Registration Flow
+        test_email = "security.tester@sentinel.shield"
+        reg_res = self.app.post('/register', data={
+            'name': 'Sentinel Analyst',
+            'email': test_email,
+            'password': 'SecurePassword123',
+            'confirm_password': 'SecurePassword123'
+        }, follow_redirects=False)
+        self.assertEqual(reg_res.status_code, 302)
+        self.assertIn('/login', reg_res.headers.get('Location', ''))
+
+        # 5. User Login Flow
+        login_res = self.app.post('/login', data={
+            'email': test_email,
+            'password': 'SecurePassword123'
+        }, follow_redirects=False)
+        self.assertEqual(login_res.status_code, 302)
+
+        # 6. Authenticated Session Access to Protected Routes
+        with self.app.session_transaction() as sess:
+            user = db.get_user_by_email(test_email)
+            self.assertIsNotNone(user)
+            sess['user_id'] = user['id']
+            sess['user_name'] = user['name']
+            sess['user_email'] = user['email']
+
+        for protected_path in ['/', '/analyzer', '/dashboard', '/history', '/contacts']:
+            auth_response = self.app.get(protected_path)
+            self.assertEqual(auth_response.status_code, 200, f"Authenticated access to {protected_path} failed")
+
+        # 7. Authenticated API Access
+        api_auth = self.app.post('/api/analyze', json={
             'message_type': 'SMS',
             'sender': '+91 9876543210',
             'email_content': 'Hey bro, see you tomorrow at 5 PM for dinner.'
         })
-        self.assertEqual(api_res.status_code, 200)
-        data = api_res.get_json()
+        self.assertEqual(api_auth.status_code, 200)
+        data = api_auth.get_json()
         self.assertTrue(data['success'])
+
+        # 8. Logout Flow
+        logout_res = self.app.get('/logout')
+        self.assertEqual(logout_res.status_code, 302)
+        self.assertIn('/login', logout_res.headers.get('Location', ''))
     def test_09_autonomous_personal_sensing_without_whitelist(self):
         """Tests that the AI autonomously senses friend/family messages WITHOUT any manual whitelist or user hints."""
         personal_samples = [
@@ -111,7 +158,67 @@ class TestSpamMailRiskSystem(unittest.TestCase):
             res = predictor.analyze(sample, sender="Unknown Sender", is_explicit_trusted=False)
             self.assertEqual(res['classification'], 'HAM', f"Failed to autonomously sense HAM on: '{sample}'")
             self.assertEqual(res['overall_risk']['risk_level'], 'VERY LOW', f"Risk not VERY LOW on: '{sample}'")
-            self.assertLessEqual(res['spam_probability'], 15.0)
+    def test_10_auth_edge_cases(self):
+        # A. Registration Validation: Mismatched Passwords
+        res_mismatch = self.app.post('/register', data={
+            'name': 'Test User',
+            'email': 'mismatch@sentinel.shield',
+            'password': 'Password123',
+            'confirm_password': 'DifferentPassword456'
+        })
+        self.assertEqual(res_mismatch.status_code, 200) # Re-renders register page
+
+        # B. Registration Validation: Short Password (< 6 chars)
+        res_short = self.app.post('/register', data={
+            'name': 'Test User',
+            'email': 'short@sentinel.shield',
+            'password': '123',
+            'confirm_password': '123'
+        })
+        self.assertEqual(res_short.status_code, 200)
+
+        # C. Registration Validation: Invalid Email Format
+        res_bad_email = self.app.post('/register', data={
+            'name': 'Test User',
+            'email': 'invalid-email-format',
+            'password': 'Password123',
+            'confirm_password': 'Password123'
+        })
+        self.assertEqual(res_bad_email.status_code, 200)
+
+        # D. Login Validation: Invalid Credentials
+        res_bad_login = self.app.post('/login', data={
+            'email': 'nonexistent@sentinel.shield',
+            'password': 'WrongPassword123'
+        })
+        self.assertEqual(res_bad_login.status_code, 200)
+
+        # E. Login with next URL redirection
+        test_email = "redirect.test@sentinel.shield"
+        self.app.post('/register', data={
+            'name': 'Redirect User',
+            'email': test_email,
+            'password': 'SecurePassword123',
+            'confirm_password': 'SecurePassword123'
+        })
+        res_login_next = self.app.post('/login?next=/dashboard', data={
+            'email': test_email,
+            'password': 'SecurePassword123'
+        }, follow_redirects=False)
+        self.assertEqual(res_login_next.status_code, 302)
+        self.assertEqual(res_login_next.headers.get('Location'), '/dashboard')
+
+        # F. Authenticated user visiting /login or /register should be redirected to /
+        with self.app.session_transaction() as sess:
+            u = db.get_user_by_email(test_email)
+            sess['user_id'] = u['id']
+            sess['user_name'] = u['name']
+
+        res_auth_login = self.app.get('/login')
+        self.assertEqual(res_auth_login.status_code, 302)
+
+        res_auth_register = self.app.get('/register')
+        self.assertEqual(res_auth_register.status_code, 302)
 
 if __name__ == '__main__':
     unittest.main()

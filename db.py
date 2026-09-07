@@ -279,12 +279,14 @@ class Database:
 
     # User Auth
     def create_user(self, name, email, password_hash):
+        email_clean = (email or '').strip().lower()
         q = "INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s)"
-        return self.execute_query(q, (name, email, password_hash), commit=True)
+        return self.execute_query(q, (name, email_clean, password_hash), commit=True)
 
     def get_user_by_email(self, email):
-        q = "SELECT * FROM users WHERE email = %s"
-        return self.execute_query(q, (email,), fetchone=True)
+        email_clean = (email or '').strip().lower()
+        q = "SELECT * FROM users WHERE LOWER(email) = LOWER(%s)"
+        return self.execute_query(q, (email_clean,), fetchone=True)
 
     def get_user_by_id(self, user_id):
         q = "SELECT * FROM users WHERE id = %s"
