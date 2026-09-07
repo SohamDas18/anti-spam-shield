@@ -122,7 +122,10 @@ def register():
             flash('Please enter a valid email address (e.g. analyst@sentinel.shield).', 'warning')
             return render_template('register.html', name=name, email=email)
 
-        # 4. Password security requirements
+        # 4. Password security requirements (strip accidental trailing/leading whitespace)
+        password = password.strip()
+        confirm_password = confirm_password.strip()
+
         if len(password) < 6:
             flash('Password must be at least 6 characters long.', 'warning')
             return render_template('register.html', name=name, email=email)
@@ -136,14 +139,14 @@ def register():
         existing = db.get_user_by_email(email)
         if existing:
             flash('An account with this email already exists. Please log in.', 'warning')
-            return redirect(url_for('login'))
+            return redirect(url_for('login', email=email))
 
         # Secure password hashing (Werkzeug PBKDF2/scrypt)
         pwd_hash = generate_password_hash(password)
         db.create_user(name, email, pwd_hash)
 
         flash('Account created successfully! Please sign in with your credentials.', 'success')
-        return redirect(url_for('login'))
+        return redirect(url_for('login', email=email))
 
     return render_template('register.html')
 
@@ -154,6 +157,7 @@ def login():
         return redirect(url_for('dashboard'))
 
     next_url = request.args.get('next') or request.form.get('next')
+    prefill_email = request.args.get('email', '').strip().lower()
 
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
@@ -164,7 +168,20 @@ def login():
             return render_template('login.html', email=email, next_url=next_url)
 
         user = db.get_user_by_email(email)
-        if user and check_password_hash(user['password_hash'], password):
+        if not user:
+            flash(f'No account found with the email "{email}". If you registered before the recent server deployment, please register again to re-create your account.', 'warning')
+            return render_template('login.html', email=email, next_url=next_url)
+
+        # Flexible whitespace verification (handles mobile autofill & accidental spacebar presses)
+        password_clean = password.strip()
+        is_pw_valid = (
+            check_password_hash(user['password_hash'], password) or
+            check_password_hash(user['password_hash'], password_clean) or
+            check_password_hash(user['password_hash'], password.rstrip()) or
+            check_password_hash(user['password_hash'], password.lstrip())
+        )
+
+        if is_pw_valid:
             session.permanent = True
             session['user_id'] = user['id']
             session['user_name'] = user['name']
@@ -176,10 +193,10 @@ def login():
                 return redirect(next_url)
             return redirect(url_for('dashboard'))
         else:
-            flash('Invalid email or password. Please verify your credentials.', 'danger')
+            flash(f'Incorrect password for "{email}". Please verify your password (check Caps Lock and spaces).', 'danger')
             return render_template('login.html', email=email, next_url=next_url)
 
-    return render_template('login.html', next_url=next_url)
+    return render_template('login.html', email=prefill_email, next_url=next_url)
 
 @app.route('/logout')
 def logout():

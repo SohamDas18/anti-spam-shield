@@ -55,7 +55,7 @@
                         <span class="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500 pointer-events-none">
                             <i class="fa-solid fa-envelope"></i>
                         </span>
-                        <input type="email" name="email" value="{{ email or '' }}" required autofocus
+                        <input type="email" name="email" value="{{ email or request.args.get('email', '') }}" required autofocus
                                placeholder="analyst@sentinel.shield"
                                autocomplete="email"
                                class="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-mono transition-all">
