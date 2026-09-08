@@ -242,7 +242,7 @@
             <div class="p-4 mb-3 rounded-xl border text-sm flex items-center justify-between {% if category == 'success' %}bg-emerald-950/40 border-emerald-500/40 text-emerald-300{% elif category == 'danger' %}bg-rose-950/40 border-rose-500/40 text-rose-300{% elif category == 'warning' %}bg-amber-950/40 border-amber-500/40 text-amber-300{% else %}bg-sky-950/40 border-sky-500/40 text-sky-300{% endif %}">
                 <div class="flex items-center space-x-2">
                     <i class="fa-solid fa-circle-info"></i>
-                    <span>{{ message }}</span>
+                    <span>{{ message | safe }}</span>
                 </div>
                 <button onclick="this.parentElement.remove()" class="text-xs opacity-70 hover:opacity-100">&times;</button>
             </div>

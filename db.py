@@ -262,15 +262,10 @@ class Database:
             with conn.cursor() as cursor:
                 for q in queries:
                     cursor.execute(q)
-                for u_name, u_email in [
-                    ("Soham Das", "sohamdas9231@gmail.com"),
-                    ("Soham Das", "sohamdas544@gmail.com")
-                ]:
-                    cursor.execute("""
-                        INSERT INTO users (name, email, password_hash)
-                        VALUES (%s, %s, %s)
-                        ON CONFLICT (email) DO NOTHING;
-                    """, (u_name, u_email, "scrypt:32768:8:1$nzWTRVT3C4Lwh3pN$a5e7d1f2072ccbcce645316973cd4e7ec13171c1619350259a986cece039f4f6246ce4d89e9a801d08043456f30f82474cb1c88068bdbdc4a28a9e1f1258659a"))
+                # Clean up any stale placeholder dummy hashes
+                cursor.execute("""
+                    DELETE FROM users WHERE password_hash = 'scrypt:32768:8:1$nzWTRVT3C4Lwh3pN$a5e7d1f2072ccbcce645316973cd4e7ec13171c1619350259a986cece039f4f6246ce4d89e9a801d08043456f30f82474cb1c88068bdbdc4a28a9e1f1258659a';
+                """)
             conn.commit()
         finally:
             conn.close()
@@ -359,16 +354,10 @@ class Database:
                 except Exception:
                     pass
 
-            # Ensure essential admin accounts always exist in SQLite even on fresh container clone
-            for u_name, u_email in [
-                ("Soham Das", "sohamdas9231@gmail.com"),
-                ("Soham Das", "sohamdas544@gmail.com")
-            ]:
-                cursor.execute("""
-                    INSERT OR IGNORE INTO users (name, email, password_hash)
-                    VALUES (?, ?, ?)
-                """, (u_name, u_email, "scrypt:32768:8:1$nzWTRVT3C4Lwh3pN$a5e7d1f2072ccbcce645316973cd4e7ec13171c1619350259a986cece039f4f6246ce4d89e9a801d08043456f30f82474cb1c88068bdbdc4a28a9e1f1258659a"))
-
+            # Clean up any stale placeholder dummy hashes
+            cursor.execute("""
+                DELETE FROM users WHERE password_hash = 'scrypt:32768:8:1$nzWTRVT3C4Lwh3pN$a5e7d1f2072ccbcce645316973cd4e7ec13171c1619350259a986cece039f4f6246ce4d89e9a801d08043456f30f82474cb1c88068bdbdc4a28a9e1f1258659a'
+            """)
             conn.commit()
         finally:
             conn.close()

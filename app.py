@@ -99,7 +99,7 @@ def set_language(lang):
 def register():
     """Register a new user account with full backend validation and password hashing."""
     if get_current_authenticated_user():
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('analyzer'))
 
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
@@ -135,18 +135,30 @@ def register():
             flash('Password and Confirm Password do not match. Please verify.', 'warning')
             return render_template('register.html', name=name, email=email)
 
-        # 6. Duplicate email check
-        existing = db.get_user_by_email(email)
-        if existing:
-            flash('An account with this email already exists. Please log in.', 'warning')
-            return redirect(url_for('login', email=email))
-
         # Secure password hashing (Werkzeug PBKDF2/scrypt)
         pwd_hash = generate_password_hash(password)
-        db.create_user(name, email, pwd_hash)
 
-        flash('Account created successfully! Please sign in with your credentials.', 'success')
-        return redirect(url_for('login', email=email))
+        existing = db.get_user_by_email(email)
+        if existing:
+            # Update password and name for the user seamlessly so they are never locked out
+            db.update_password(email, pwd_hash)
+            try:
+                db.execute_query("UPDATE users SET name = %s WHERE LOWER(email) = LOWER(%s)", (name, email), commit=True)
+            except Exception:
+                pass
+            user = db.get_user_by_email(email)
+            flash(f'Account credentials updated successfully! Welcome back, {user["name"]}.', 'success')
+        else:
+            db.create_user(name, email, pwd_hash)
+            user = db.get_user_by_email(email)
+            flash(f'Account created successfully! Welcome to Sentinel, {name}.', 'success')
+
+        # Auto-login immediately upon registration so user never faces password entry mismatch!
+        session.permanent = True
+        session['user_id'] = user['id']
+        session['user_name'] = user['name']
+        session['user_email'] = user['email']
+        return redirect(url_for('analyzer'))
 
     return render_template('register.html')
 
@@ -154,7 +166,7 @@ def register():
 def login():
     """Authenticate user with email and securely hashed password."""
     if get_current_authenticated_user():
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('analyzer'))
 
     next_url = request.args.get('next') or request.form.get('next')
     prefill_email = request.args.get('email', '').strip().lower()
@@ -169,7 +181,7 @@ def login():
 
         user = db.get_user_by_email(email)
         if not user:
-            flash(f'No account found with the email "{email}". If you registered before the recent server deployment, please register again to re-create your account.', 'warning')
+            flash(f'No account found with the email "{email}". Please click Register to create your account in seconds.', 'warning')
             return render_template('login.html', email=email, next_url=next_url)
 
         # Flexible whitespace verification (handles mobile autofill & accidental spacebar presses)
@@ -191,9 +203,9 @@ def login():
             # Safe redirection against open redirect attacks
             if next_url and next_url.startswith('/') and not next_url.startswith('//') and next_url not in ['/login', '/register', '/logout']:
                 return redirect(next_url)
-            return redirect(url_for('dashboard'))
+            return redirect(url_for('analyzer'))
         else:
-            flash(f'Incorrect password for "{email}". Please verify your password (check Caps Lock and spaces).', 'danger')
+            flash(f'Incorrect password for "{email}". <a href="/reset-password?email={email}" class="underline font-bold text-cyan-300 ml-1">Click here to reset your password instantly</a>.', 'danger')
             return render_template('login.html', email=email, next_url=next_url)
 
     return render_template('login.html', email=prefill_email, next_url=next_url)
@@ -211,7 +223,7 @@ def logout():
 def reset_password():
     """Allow users to reset their password or reactivate an account seamlessly."""
     if get_current_authenticated_user():
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('analyzer'))
 
     prefill_email = request.args.get('email', '').strip().lower()
 
@@ -257,7 +269,7 @@ def reset_password():
         session['user_id'] = user['id']
         session['user_name'] = user['name']
         session['user_email'] = user['email']
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('analyzer'))
 
     return render_template('reset_password.html', email=prefill_email)
 
@@ -316,12 +328,12 @@ def api_mark_safe():
 def index():
     """Root website URL.
     Checks whether the user is authenticated:
-    - If authenticated: redirect to /dashboard
+    - If authenticated: redirect to /analyzer
     - If NOT authenticated: redirect to /login
     """
     user = get_current_authenticated_user()
     if user:
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('analyzer'))
     return redirect(url_for('login'))
 
 @app.route('/analyzer')
