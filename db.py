@@ -299,7 +299,7 @@ class Database:
                 phone_numbers TEXT,
                 is_trusted_sender INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
             );
             """,
             """
@@ -313,7 +313,7 @@ class Database:
                 possible_consequence TEXT,
                 recommendation TEXT,
                 analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (email_id) REFERENCES emails(id)
+                FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
             );
             """,
             """
@@ -327,7 +327,7 @@ class Database:
                 risk_level TEXT NOT NULL,
                 flags TEXT,
                 analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (email_id) REFERENCES emails(id)
+                FOREIGN KEY (email_id) REFERENCES emails(id) ON DELETE CASCADE
             );
             """,
             """
@@ -339,7 +339,7 @@ class Database:
                 contact_type TEXT DEFAULT 'PHONE',
                 notes TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id)
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
             );
             """
         ]
@@ -374,7 +374,18 @@ class Database:
             conn.close()
 
     def execute_query(self, query, params=None, fetchone=False, fetchall=False, commit=False):
-        conn = self.get_connection()
+        conn = None
+        try:
+            conn = self.get_connection()
+        except Exception as conn_err:
+            if self.engine == "postgres":
+                logger.warning(f"PostgreSQL connection lost, falling back to SQLite: {conn_err}")
+                self.engine = "sqlite"
+                self._create_sqlite_tables()
+                conn = self.get_connection()
+            else:
+                raise conn_err
+
         try:
             if self.engine == "sqlite":
                 q = query.replace("%s", "?")
@@ -390,30 +401,38 @@ class Database:
                     conn.commit()
                 return cursor.lastrowid
             elif self.engine == "postgres":
-                is_insert = query.strip().upper().startswith("INSERT")
-                actual_query = query
-                if is_insert and "RETURNING" not in query.upper():
-                    actual_query = query.rstrip().rstrip(";") + " RETURNING id;"
+                try:
+                    is_insert = query.strip().upper().startswith("INSERT")
+                    actual_query = query
+                    if is_insert and "RETURNING" not in query.upper():
+                        actual_query = query.rstrip().rstrip(";") + " RETURNING id;"
 
-                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                    cursor.execute(actual_query, params or ())
-                    if fetchone:
-                        res = cursor.fetchone()
-                        return dict(res) if res else None
-                    if fetchall:
-                        res = cursor.fetchall()
-                        return [dict(r) for r in res]
-                    last_id = None
-                    if is_insert:
-                        try:
-                            row = cursor.fetchone()
-                            if row and 'id' in row:
-                                last_id = row['id']
-                        except Exception:
-                            pass
-                    if commit:
-                        conn.commit()
-                    return last_id
+                    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+                        cursor.execute(actual_query, params or ())
+                        if fetchone:
+                            res = cursor.fetchone()
+                            return dict(res) if res else None
+                        if fetchall:
+                            res = cursor.fetchall()
+                            return [dict(r) for r in res]
+                        last_id = None
+                        if is_insert:
+                            try:
+                                row = cursor.fetchone()
+                                if row and 'id' in row:
+                                    last_id = row['id']
+                            except Exception:
+                                pass
+                        if commit:
+                            conn.commit()
+                        return last_id
+                except (psycopg2.OperationalError, psycopg2.DatabaseError) as pg_op_err:
+                    logger.warning(f"PostgreSQL query error, falling back to SQLite: {pg_op_err}")
+                    conn.close()
+                    conn = None
+                    self.engine = "sqlite"
+                    self._create_sqlite_tables()
+                    return self.execute_query(query, params=params, fetchone=fetchone, fetchall=fetchall, commit=commit)
             else:
                 with conn.cursor() as cursor:
                     cursor.execute(query, params or ())
@@ -425,7 +444,11 @@ class Database:
                         conn.commit()
                     return cursor.lastrowid
         finally:
-            conn.close()
+            if conn:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     # User Auth
     def create_user(self, name, email, password_hash):

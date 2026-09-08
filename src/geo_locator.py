@@ -429,52 +429,65 @@ def geolocate_ip_or_host(host_or_ip):
         _IP_GEO_CACHE[clean_host] = res
         return res
 
-    # 1. DNS Resolution
-    resolved_ip = None
-    try:
-        resolved_ip = socket.gethostbyname(clean_host)
-    except Exception:
-        resolved_ip = None
+    # Fast TLD and Institutional Domain Heuristics (Instant 0ms lookup, no network blocking)
+    tld_cc = 'US'
+    parts = clean_host.split('.')
+    if len(parts) >= 2:
+        last_part = parts[-1].upper()
+        second_last = parts[-2].upper() if len(parts) >= 3 else ''
+        if last_part == 'IN' or (second_last in ['CO', 'GOV', 'RES', 'AC', 'NIC', 'ORG'] and last_part == 'IN'):
+            tld_cc = 'IN'
+        elif any(b in clean_host for b in ['sbi', 'hdfc', 'icici', 'axis', 'paytm', 'bspc', 'wbse', 'yono', 'airtel', 'jio']):
+            tld_cc = 'IN'
+        elif last_part in COUNTRY_REGISTRY:
+            tld_cc = last_part
+        elif last_part in ['RU', 'SU']:
+            tld_cc = 'RU'
+        elif last_part in ['CN']:
+            tld_cc = 'CN'
+        elif last_part in ['NG']:
+            tld_cc = 'NG'
+        elif last_part in ['PK']:
+            tld_cc = 'PK'
+        elif last_part in ['BD']:
+            tld_cc = 'BD'
+        elif last_part in ['UK']:
+            tld_cc = 'GB'
+        elif last_part in ['CA']:
+            tld_cc = 'CA'
+        elif last_part in ['DE']:
+            tld_cc = 'DE'
+        elif last_part in ['FR']:
+            tld_cc = 'FR'
+        elif last_part in ['AE']:
+            tld_cc = 'AE'
+        elif last_part in ['SG']:
+            tld_cc = 'SG'
+        else:
+            tld_cc = 'US'
 
-    target_ip = resolved_ip if resolved_ip else clean_host
+    country_info = COUNTRY_REGISTRY.get(tld_cc, COUNTRY_REGISTRY['US'])
 
-    # 2. Query Geolocation Service (ip-api.com, free, up to 45 req/min, 1.5s timeout)
-    try:
-        url = f"http://ip-api.com/json/{target_ip}?fields=status,message,country,countryCode,region,regionName,city,lat,lon,timezone,isp,org,as,query"
-        req = urllib.request.Request(url, headers={'User-Agent': 'SentinelAI-Threat-Geo/2.0'})
-        with urllib.request.urlopen(req, timeout=1.8) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            if data.get('status') == 'success':
-                cc = data.get('countryCode', 'US')
-                flag = COUNTRY_REGISTRY.get(cc, {}).get('flag', '🌐')
-                data['flag'] = flag
-                data['ip'] = target_ip
-                if len(_IP_GEO_CACHE) > 500:
-                    _IP_GEO_CACHE.clear()
-                _IP_GEO_CACHE[clean_host] = data
-                return data
-    except Exception as e:
-        logger.warning(f"Geo IP lookup failed for {target_ip}: {e}")
+    # Determine display host / IP
+    target_ip = clean_host
+    is_ipv4 = bool(re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', clean_host))
+    if not is_ipv4:
+        target_ip = f"Host: {clean_host}"
 
-    # Fallback to TLD / Domain Heuristics if API unavailable
-    tld_match = clean_host.split('.')[-1]
-    fallback_cc = tld_match.upper() if tld_match.upper() in COUNTRY_REGISTRY else 'US'
-    country_info = COUNTRY_REGISTRY.get(fallback_cc, COUNTRY_REGISTRY['US'])
-    
-    fallback_data = {
+    res = {
         'status': 'success',
         'country': country_info['country'],
-        'countryCode': fallback_cc,
+        'countryCode': tld_cc,
         'flag': country_info['flag'],
-        'regionName': 'Global Region',
-        'city': 'Primary Gateway',
-        'lat': country_info['lat'],
-        'lon': country_info['lon'],
-        'isp': 'Domain DNS Host',
+        'regionName': 'Global Hosting Region',
+        'city': 'Domain Gateway',
+        'lat': float(country_info['lat']),
+        'lon': float(country_info['lon']),
+        'isp': 'Web Hosting Infrastructure',
         'ip': target_ip
     }
-    _IP_GEO_CACHE[clean_host] = fallback_data
-    return fallback_data
+    _IP_GEO_CACHE[clean_host] = res
+    return res
 
 
 def locate_sender(sender, message_type='AUTO', text_content="", user_id=None):

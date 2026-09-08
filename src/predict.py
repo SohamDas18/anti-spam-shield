@@ -40,13 +40,20 @@ def translate_native_message(text):
         return _TRANSLATION_CACHE[snippet]
     
     try:
+        from concurrent.futures import ThreadPoolExecutor
         from deep_translator import GoogleTranslator
-        translated = GoogleTranslator(source='auto', target='en').translate(snippet)
-        res = translated if translated else text
-        if len(_TRANSLATION_CACHE) > 500:
-            _TRANSLATION_CACHE.clear()
-        _TRANSLATION_CACHE[snippet] = res
-        return res
+
+        def _do_translate():
+            return GoogleTranslator(source='auto', target='en').translate(snippet)
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_do_translate)
+            translated = future.result(timeout=1.5)
+            res = translated if translated else text
+            if len(_TRANSLATION_CACHE) > 500:
+                _TRANSLATION_CACHE.clear()
+            _TRANSLATION_CACHE[snippet] = res
+            return res
     except Exception:
         return text
 

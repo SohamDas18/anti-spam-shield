@@ -358,29 +358,38 @@ def analyze_email():
         c_type = 'EMAIL' if '@' in sender else 'PHONE'
         db.add_trusted_contact(sender, "Known Person (Self-Declared)", contact_type=c_type, user_id=user_id)
 
-    # Run unified prediction pipeline with whitelist check
-    result = predictor.analyze(
-        email_content,
-        sender=sender,
-        subject=subject,
-        message_type=message_type,
-        user_id=user_id,
-        is_explicit_trusted=is_explicit_trusted
-    )
+    try:
+        # Run unified prediction pipeline with whitelist check
+        result = predictor.analyze(
+            email_content,
+            sender=sender,
+            subject=subject,
+            message_type=message_type,
+            user_id=user_id,
+            is_explicit_trusted=is_explicit_trusted
+        )
 
-    # Persist in MySQL / SQLite
-    email_id = db.save_analysis(
-        user_id=user_id,
-        sender=sender,
-        subject=subject,
-        email_content=email_content,
-        classification=result['classification'],
-        spam_probability=result['spam_probability'],
-        url_analyses=result['urls'],
-        phone_analyses=result['phones'],
-        message_type=result['message_type'],
-        is_trusted=1 if result['is_trusted_contact'] else 0
-    )
+        # Persist in MySQL / SQLite / Postgres
+        email_id = db.save_analysis(
+            user_id=user_id,
+            sender=sender,
+            subject=subject,
+            email_content=email_content,
+            classification=result['classification'],
+            spam_probability=result['spam_probability'],
+            url_analyses=result['urls'],
+            phone_analyses=result['phones'],
+            message_type=result['message_type'],
+            is_trusted=1 if result['is_trusted_contact'] else 0
+        )
+    except Exception as e:
+        app.logger.error(f"Analysis error: {e}", exc_info=True)
+        flash(f"Analysis completed with alert: {str(e)[:100]}", "danger")
+        return redirect(url_for('analyzer'))
+
+    if not email_id:
+        flash("Threat analysis completed, but database persistence was unavailable.", "warning")
+        return redirect(url_for('analyzer'))
 
     return redirect(url_for('view_result', email_id=email_id))
 
@@ -388,92 +397,97 @@ def analyze_email():
 @login_required
 def view_result(email_id):
     """Displays comprehensive Security Report Card with URLs, Phone Numbers, and Trusted Status."""
-    email_data = db.get_email_details(email_id)
-    if not email_data:
-        flash('Report not found.', 'danger')
-        return redirect(url_for('index'))
+    try:
+        email_data = db.get_email_details(email_id)
+        if not email_data:
+            flash('Report not found or has expired. Please run a new scan.', 'warning')
+            return redirect(url_for('analyzer'))
 
-    urls = email_data.get('urls', [])
-    phones = email_data.get('phones', [])
-    is_trusted = bool(email_data.get('is_trusted_sender', 0)) or bool(db.is_trusted_contact(email_data['sender']))
+        urls = email_data.get('urls', [])
+        phones = email_data.get('phones', [])
+        is_trusted = bool(email_data.get('is_trusted_sender', 0)) or bool(db.is_trusted_contact(email_data['sender']))
 
-    top_url = None
-    if urls:
-        urls = sorted(urls, key=lambda x: float(x.get('risk_probability', 0)), reverse=True)
-        top_url = {
-            'url_risk_prob': float(urls[0]['risk_probability']) / 100.0,
-            'matched_keywords': [urls[0]['risk_type']],
-            'has_dangerous_ext': '.exe' in urls[0]['url'] or 'MALWARE' in urls[0]['risk_type']
-        }
+        top_url = None
+        if urls:
+            urls = sorted(urls, key=lambda x: float(x.get('risk_probability', 0)), reverse=True)
+            top_url = {
+                'url_risk_prob': float(urls[0]['risk_probability']) / 100.0,
+                'matched_keywords': [urls[0]['risk_type']],
+                'has_dangerous_ext': '.exe' in urls[0]['url'] or 'MALWARE' in urls[0]['risk_type']
+            }
 
-    from src.risk_analyzer import calculate_risk
-    from src.phone_analyzer import analyze_phone_sender
-    from src.predict import CONVERSATIONAL_MARKERS, IMPERSONATION_TERMS
-    import re
+        from src.risk_analyzer import calculate_risk
+        from src.phone_analyzer import analyze_phone_sender
+        from src.predict import CONVERSATIONAL_MARKERS, IMPERSONATION_TERMS
+        import re
 
-    text_lower = (email_data.get('email_content') or '').lower()
-    has_conversational = any(re.search(rf'\b{re.escape(cm)}\b', text_lower) for cm in CONVERSATIONAL_MARKERS)
-    has_impersonation = any(it in text_lower for it in IMPERSONATION_TERMS)
-    is_autonomous_personal = has_conversational and not has_impersonation
+        text_lower = (email_data.get('email_content') or '').lower()
+        has_conversational = any(re.search(rf'\b{re.escape(cm)}\b', text_lower) for cm in CONVERSATIONAL_MARKERS)
+        has_impersonation = any(it in text_lower for it in IMPERSONATION_TERMS)
+        is_autonomous_personal = has_conversational and not has_impersonation
 
-    if is_trusted:
-        overall_risk = {
-            'risk_probability': 2.0,
-            'risk_level': 'VERY LOW',
-            'risk_badge': '🟢 Very Low',
-            'risk_type': 'VERIFIED KNOWN CONTACT / SAFE',
-            'possible_consequence': 'Message originated from a known contact on your verified whitelist. No security threats detected.',
-            'recommendation': 'SAFE TO INTERACT. This contact is recognized as legitimate.'
-        }
-        sender_analysis = None
-    elif is_autonomous_personal and email_data['classification'] == 'HAM':
-        overall_risk = {
-            'risk_probability': max(1.5, round(float(email_data['spam_probability']), 1)),
-            'risk_level': 'VERY LOW',
-            'risk_badge': '🟢 Very Low',
-            'risk_type': 'PERSONAL COMMUNICATION / SAFE (AI Auto-Sensed)',
-            'possible_consequence': 'Autonomous AI detection recognized natural human conversational language and everyday peer interaction. No cyber threats found.',
-            'recommendation': 'SAFE TO INTERACT. The AI senses this as authentic personal communication.'
-        }
-        sender_analysis = analyze_phone_sender(email_data['sender'], email_data['email_content'])
-    else:
-        sender_analysis = analyze_phone_sender(email_data['sender'], email_data['email_content'])
-        overall_risk = calculate_risk(
-            float(email_data['spam_probability']) / 100.0,
-            top_url,
-            email_data['email_content'],
-            phone_analyses=phones,
-            sender_analysis=sender_analysis
+        if is_trusted:
+            overall_risk = {
+                'risk_probability': 2.0,
+                'risk_level': 'VERY LOW',
+                'risk_badge': '🟢 Very Low',
+                'risk_type': 'VERIFIED KNOWN CONTACT / SAFE',
+                'possible_consequence': 'Message originated from a known contact on your verified whitelist. No security threats detected.',
+                'recommendation': 'SAFE TO INTERACT. This contact is recognized as legitimate.'
+            }
+            sender_analysis = None
+        elif is_autonomous_personal and email_data['classification'] == 'HAM':
+            overall_risk = {
+                'risk_probability': max(1.5, round(float(email_data['spam_probability']), 1)),
+                'risk_level': 'VERY LOW',
+                'risk_badge': '🟢 Very Low',
+                'risk_type': 'PERSONAL COMMUNICATION / SAFE (AI Auto-Sensed)',
+                'possible_consequence': 'Autonomous AI detection recognized natural human conversational language and everyday peer interaction. No cyber threats found.',
+                'recommendation': 'SAFE TO INTERACT. The AI senses this as authentic personal communication.'
+            }
+            sender_analysis = analyze_phone_sender(email_data['sender'], email_data['email_content'])
+        else:
+            sender_analysis = analyze_phone_sender(email_data['sender'], email_data['email_content'])
+            overall_risk = calculate_risk(
+                float(email_data['spam_probability']) / 100.0,
+                top_url,
+                email_data['email_content'],
+                phone_analyses=phones,
+                sender_analysis=sender_analysis
+            )
+        from src.geo_locator import locate_sender, locate_url_hosts, locate_callback_phones, build_interactive_map_payload
+
+        sender_geo = locate_sender(
+            email_data.get('sender'),
+            email_data.get('message_type'),
+            text_content=email_data.get('email_content', ''),
+            user_id=session.get('user_id')
         )
-    from src.geo_locator import locate_sender, locate_url_hosts, locate_callback_phones, build_interactive_map_payload
+        url_geos = locate_url_hosts(urls)
+        phone_geos = locate_callback_phones(phones, text_content=email_data.get('email_content', ''))
+        map_pins = build_interactive_map_payload(sender_geo, url_geos=url_geos, phone_geos=phone_geos)
 
-    sender_geo = locate_sender(
-        email_data.get('sender'),
-        email_data.get('message_type'),
-        text_content=email_data.get('email_content', ''),
-        user_id=session.get('user_id')
-    )
-    url_geos = locate_url_hosts(urls)
-    phone_geos = locate_callback_phones(phones, text_content=email_data.get('email_content', ''))
-    map_pins = build_interactive_map_payload(sender_geo, url_geos=url_geos, phone_geos=phone_geos)
+        cur_lang = session.get('lang', 'en')
+        if cur_lang == 'bn':
+            overall_risk = localize_risk_result(overall_risk, lang='bn')
 
-    cur_lang = session.get('lang', 'en')
-    if cur_lang == 'bn':
-        overall_risk = localize_risk_result(overall_risk, lang='bn')
-
-    return render_template(
-        'result.html',
-        email=email_data,
-        urls=urls,
-        phones=phones,
-        sender_analysis=sender_analysis,
-        overall_risk=overall_risk,
-        is_autonomous_personal=is_autonomous_personal,
-        sender_geo=sender_geo,
-        url_geos=url_geos,
-        phone_geos=phone_geos,
-        map_pins=map_pins
-    )
+        return render_template(
+            'result.html',
+            email=email_data,
+            urls=urls,
+            phones=phones,
+            sender_analysis=sender_analysis,
+            overall_risk=overall_risk,
+            is_autonomous_personal=is_autonomous_personal,
+            sender_geo=sender_geo,
+            url_geos=url_geos,
+            phone_geos=phone_geos,
+            map_pins=map_pins
+        )
+    except Exception as e:
+        app.logger.error(f"Error rendering result page: {e}", exc_info=True)
+        flash(f"Error rendering security report: {str(e)[:100]}", "danger")
+        return redirect(url_for('analyzer'))
 
 @app.route('/history')
 @login_required
