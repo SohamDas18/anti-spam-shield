@@ -1,5 +1,8 @@
-/* Custom styling for Spam Mail Detection & Email Risk Analysis System */
+﻿/* ==========================================================================
+   SENTINEL CYBER DEFENSE CONSOLE — TACTICAL CYBERSECURITY STYLES
+   ========================================================================== */
 
+/* Custom Cyber Scrollbar */
 ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -10,27 +13,218 @@
 ::-webkit-scrollbar-thumb {
     background: #1e293b;
     border-radius: 9999px;
+    border: 1px solid rgba(6, 182, 212, 0.2);
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #334155;
+    background: #0891b2;
 }
 
-/* Cyber glow effects */
+/* ==========================================================================
+   REALISTIC CYBERSECURITY BACKGROUND & TACTICAL HUD GRID
+   ========================================================================== */
+
+body {
+    background-color: #030712 !important;
+    color: #e2e8f0;
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+    /* Tactical Cyber Grid & Ambient Threat Vector Spotlight Layers */
+    background-image: 
+        /* 1. Cyber Radar & Sensor Spotlights */
+        radial-gradient(circle at 10% 15%, rgba(6, 182, 212, 0.12) 0%, transparent 45%),
+        radial-gradient(circle at 90% 20%, rgba(99, 102, 241, 0.10) 0%, transparent 45%),
+        radial-gradient(circle at 50% 85%, rgba(14, 165, 233, 0.08) 0%, transparent 50%),
+        radial-gradient(circle at 85% 90%, rgba(139, 92, 246, 0.07) 0%, transparent 40%),
+        /* 2. Micro-dot Cyber Sensor Matrix */
+        radial-gradient(rgba(6, 182, 212, 0.15) 1px, transparent 1px),
+        /* 3. Cartesian Coordinate Grid Lines */
+        linear-gradient(to right, rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
+    background-size: 
+        100% 100%, 
+        100% 100%, 
+        100% 100%, 
+        100% 100%, 
+        32px 32px, 
+        64px 64px, 
+        64px 64px;
+    background-position: 
+        0 0, 
+        0 0, 
+        0 0, 
+        0 0, 
+        0 0, 
+        -1px -1px, 
+        -1px -1px;
+    background-attachment: fixed;
+}
+
+/* Realistic Cyber Scanline & SOC Vignette Filter */
+body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 1;
+    background: 
+        /* Edge Darkening / Tactical Vignette */
+        radial-gradient(ellipse at center, transparent 60%, rgba(2, 6, 23, 0.82) 100%),
+        /* CRT Scanline Filter (Subtle & Crisp) */
+        repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.09) 0px, rgba(0, 0, 0, 0.09) 1px, transparent 1px, transparent 3px);
+    opacity: 0.9;
+}
+
+/* Background Canvas Layer (Fixed Behind Foreground Content) */
+#cyber-bg-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+#cyber-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    pointer-events: none;
+}
+
+/* Tactical Vertical Scanning Radar Beam */
+.cyber-scan-beam {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background: linear-gradient(90deg, 
+        transparent 0%, 
+        rgba(6, 182, 212, 0.1) 20%, 
+        rgba(6, 182, 212, 0.8) 50%, 
+        rgba(99, 102, 241, 0.8) 70%, 
+        transparent 100%);
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.6), 0 0 30px rgba(6, 182, 212, 0.3);
+    opacity: 0.45;
+    animation: cyberRadarSweep 9s linear infinite;
+    pointer-events: none;
+    z-index: 2;
+}
+
+@keyframes cyberRadarSweep {
+    0% {
+        top: -10px;
+        opacity: 0;
+    }
+    5% {
+        opacity: 0.5;
+    }
+    95% {
+        opacity: 0.5;
+    }
+    100% {
+        top: 100%;
+        opacity: 0;
+    }
+}
+
+/* Ensure Foreground Hierarchy Stays Above Background Elements */
+header, main, footer, .alert-container, #flash-container, .modal, .toast {
+    position: relative;
+    z-index: 10;
+}
+
+/* ==========================================================================
+   CYBER GLASSMORPHISM & TACTICAL CARDS
+   ========================================================================== */
+
+/* Enhanced Cyber Glass Cards */
+.card-glass, 
+.bg-slate-900\/90,
+.bg-slate-900\/80,
+.bg-slate-900\/70 {
+    background: rgba(11, 17, 33, 0.82) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    border: 1px solid rgba(56, 189, 248, 0.15) !important;
+    box-shadow: 
+        0 10px 25px -5px rgba(0, 0, 0, 0.6), 
+        0 8px 10px -6px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+}
+
+.card-glass:hover {
+    border-color: rgba(56, 189, 248, 0.3) !important;
+    box-shadow: 
+        0 15px 30px -5px rgba(0, 0, 0, 0.7),
+        0 0 20px rgba(6, 182, 212, 0.15),
+        inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Cyber Glow Effects */
 .glow-cyan {
-    box-shadow: 0 0 20px rgba(6, 182, 212, 0.25);
+    box-shadow: 0 0 25px rgba(6, 182, 212, 0.35);
 }
 
 .glow-rose {
-    box-shadow: 0 0 20px rgba(244, 63, 94, 0.25);
+    box-shadow: 0 0 25px rgba(244, 63, 94, 0.35);
 }
 
 .glow-emerald {
-    box-shadow: 0 0 20px rgba(16, 185, 129, 0.25);
+    box-shadow: 0 0 25px rgba(16, 185, 129, 0.35);
 }
 
-/* Glassmorphic Cards */
-.card-glass {
-    background: rgba(15, 23, 42, 0.85);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(51, 65, 85, 0.5);
+/* Subtle Tactical Crosshair Reticle Markers */
+.cyber-reticle {
+    position: relative;
+}
+.cyber-reticle::before,
+.cyber-reticle::after {
+    content: "";
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-color: rgba(6, 182, 212, 0.4);
+    pointer-events: none;
+}
+.cyber-reticle::before {
+    top: -2px;
+    left: -2px;
+    border-top: 2px solid;
+    border-left: 2px solid;
+}
+.cyber-reticle::after {
+    bottom: -2px;
+    right: -2px;
+    border-bottom: 2px solid;
+    border-right: 2px solid;
+}
+
+/* Pulse Animation for Live Threat Radar */
+@keyframes cyberPulseRing {
+    0% {
+        transform: scale(0.95);
+        opacity: 0.8;
+    }
+    50% {
+        transform: scale(1.05);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(0.95);
+        opacity: 0.8;
+    }
+}
+
+.pulse-cyber {
+    animation: cyberPulseRing 3s ease-in-out infinite;
 }
