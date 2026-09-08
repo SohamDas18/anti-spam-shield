@@ -39,8 +39,10 @@
 
     <script>
         // Dual-Layer Security: Client-side authentication guard for protected views
-        {% if not current_user and request.endpoint not in ['login', 'register'] %}
-        if (window.location.pathname !== "{{ url_for('login') }}" && window.location.pathname !== "{{ url_for('register') }}") {
+        {% if not current_user and request.endpoint not in ['login', 'register', 'reset_password'] %}
+        if (window.location.pathname !== "{{ url_for('login') }}" && 
+            window.location.pathname !== "{{ url_for('register') }}" && 
+            window.location.pathname !== "{{ url_for('reset_password') }}") {
             window.location.replace("{{ url_for('login') }}");
         }
         {% endif %}
